@@ -19,7 +19,7 @@ class ShipmentListener {
         this.saga = saga;
     }
 
-    @KafkaListener(topics = ShipmentDispatched.TOPIC)
+    @KafkaListener(topics = ShipmentDispatched.TOPIC, groupId = OrderSagaService.SHIPMENT_EVENTS_CONSUMER)
     public void on(String message) {
         EventEnvelope event = reader.read(message);
         switch (event.eventType()) {

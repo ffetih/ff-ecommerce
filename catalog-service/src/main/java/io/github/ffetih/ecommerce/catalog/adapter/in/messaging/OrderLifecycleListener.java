@@ -25,7 +25,7 @@ class OrderLifecycleListener {
         this.reservations = reservations;
     }
 
-    @KafkaListener(topics = OrderPlaced.TOPIC)
+    @KafkaListener(topics = OrderPlaced.TOPIC, groupId = ReservationService.ORDER_EVENTS_CONSUMER)
     public void on(String message) {
         EventEnvelope event = reader.read(message);
         switch (event.eventType()) {

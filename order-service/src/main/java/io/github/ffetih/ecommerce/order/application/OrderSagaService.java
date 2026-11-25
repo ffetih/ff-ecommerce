@@ -20,8 +20,10 @@ import java.util.function.UnaryOperator;
  */
 public class OrderSagaService {
 
-    static final String RESERVATION_EVENTS_CONSUMER = "order-service.reservations";
-    static final String SHIPMENT_EVENTS_CONSUMER = "order-service.shipments";
+    /** Inbox consumer name and Kafka consumer group of the listener for these events. */
+    public static final String RESERVATION_EVENTS_CONSUMER = "order-service.reservations";
+    /** Inbox consumer name and Kafka consumer group of the listener for these events. */
+    public static final String SHIPMENT_EVENTS_CONSUMER = "order-service.shipments";
 
     private final OrderRepository orders;
     private final OrderEvents events;

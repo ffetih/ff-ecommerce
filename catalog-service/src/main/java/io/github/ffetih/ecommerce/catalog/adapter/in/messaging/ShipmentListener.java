@@ -19,7 +19,7 @@ class ShipmentListener {
         this.reservations = reservations;
     }
 
-    @KafkaListener(topics = ShipmentDispatched.TOPIC)
+    @KafkaListener(topics = ShipmentDispatched.TOPIC, groupId = ReservationService.SHIPMENT_EVENTS_CONSUMER)
     public void on(String message) {
         EventEnvelope event = reader.read(message);
         if (ShipmentDispatched.TYPE.equals(event.eventType())) {

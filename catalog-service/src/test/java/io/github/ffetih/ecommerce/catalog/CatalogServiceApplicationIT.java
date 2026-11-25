@@ -24,6 +24,6 @@ class CatalogServiceApplicationIT {
 
         assertThat(tables).contains(
                 "products", "stock_items", "stock_receipts", "reservations", "reservation_lines",
-                "flyway_schema_history");
+                "outbox_messages", "inbox_messages", "flyway_schema_history");
     }
 }

@@ -19,7 +19,7 @@ class ReservationListener {
         this.saga = saga;
     }
 
-    @KafkaListener(topics = StockReserved.TOPIC)
+    @KafkaListener(topics = StockReserved.TOPIC, groupId = OrderSagaService.RESERVATION_EVENTS_CONSUMER)
     public void on(String message) {
         EventEnvelope event = reader.read(message);
         switch (event.eventType()) {
