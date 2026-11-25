@@ -24,6 +24,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>tokens are validated by Spring Security against the configured issuer (signature from the
  *       issuer's published keys, {@code iss}, {@code exp}/{@code nbf}) and audience ({@code aud});</li>
  *   <li>{@code realm_access.roles} become authorities ({@code hasRole("admin")});</li>
+ *   <li>{@code /actuator/metrics} is for the {@code admin} role (operators; monitoring gets its own
+ *       access with s09);</li>
  *   <li>anything without a rule is denied ({@code anyRequest().denyAll()} is always last, so a
  *       forgotten endpoint is closed, not open);</li>
  *   <li>401 and 403 are problem responses with an RFC 6750 {@code WWW-Authenticate} header.</li>
@@ -47,6 +49,9 @@ public final class ResourceServerSecurity {
 
     /** Open on every service: liveness and readiness probes, and the container's error page. */
     private static final String[] ALWAYS_OPEN = {"/actuator/health/**", "/error"};
+
+    /** Operational detail (queue sizes, error counts, JVM internals): useful to an attacker, so not public. */
+    private static final String[] OPERATIONS = {"/actuator/metrics", "/actuator/metrics/**"};
 
     private final JwtAuthenticationConverter authenticationConverter;
     private final AuthenticationEntryPoint authenticationEntryPoint;
@@ -78,6 +83,7 @@ public final class ResourceServerSecurity {
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(authenticationConverter)))
                 .authorizeHttpRequests(rules -> {
                     rules.requestMatchers(ALWAYS_OPEN).permitAll();
+                    rules.requestMatchers(OPERATIONS).hasRole("admin");
                     allowed.customize(rules);
                     rules.anyRequest().denyAll();
                 });

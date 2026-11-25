@@ -78,7 +78,8 @@ public class ReservationService {
 
     /**
      * Reserves all lines or none. Repeating the call with the same order id and the same lines
-     * returns the existing reservation; the same order id with different lines is a conflict.
+     * returns the existing reservation; the same order id with different lines, or after the
+     * reservation was released, is a conflict.
      */
     public Reservation reserve(UUID orderId, List<Reservation.Line> lines) {
         Reservation requested = Reservation.place(orderId, lines, now());
@@ -171,6 +172,11 @@ public class ReservationService {
 
         Optional<Reservation> existing = reservations.findById(orderId);
         if (existing.isPresent()) {
+            if (existing.get().status() == Reservation.Status.RELEASED) {
+                // The order was cancelled and its stock given back. Answering "reserved" again would
+                // claim stock that nobody holds; a late or replayed order-placed must not do that.
+                return new Attempt.Refused(ConflictException.reservationReleased(orderId));
+            }
             return existing.get().hasSameLines(requested.lines())
                     ? new Attempt.AlreadyReserved(existing.get())
                     : new Attempt.Refused(ConflictException.idempotencyKeyReused(orderId));

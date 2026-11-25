@@ -7,15 +7,24 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A customer order. Its status only moves forward:
+ * A customer order. Its status only moves forward, except that a cancellation request ends one way
+ * or the other:
  * <pre>
- *   PLACED ──confirm──► CONFIRMED ──ship──► SHIPPED ──deliver──► DELIVERED
- *     │                    │
- *     └──────cancel────────┴──► CANCELLED
+ *   PLACED ──confirm──► CONFIRMED ──ship─────────────────────────► SHIPPED ──deliver──► DELIVERED
+ *     │                   │   ▲                                      ▲
+ *     │ cancel            │   │ cancellation refused                 │ ship (dispatch won)
+ *     │                   ▼   │                                      │
+ *     │             CANCELLATION_REQUESTED ──────────────────────────┘
+ *     ▼                   │ cancellation accepted
+ *   CANCELLED ◄───────────┘
  * </pre>
- * Events arrive at least once and topics are not ordered with each other, so every step is
- * idempotent: asking for a status the order already has, or has already passed, changes nothing.
- * Only genuinely impossible steps fail, such as shipping a cancelled order or cancelling a shipped one.
+ * Before confirmation the order cancels on its own: nothing is held for it in shipping yet. Once
+ * confirmed, a shipment exists, and only shipping knows whether it has left: the customer's
+ * cancellation becomes a request that shipping accepts or refuses (ADR-0007).
+ * <p>
+ * Events arrive at least once, so every step is idempotent: asking for a status the order already
+ * has, or has already passed, changes nothing. Only genuinely impossible steps fail, such as
+ * shipping a cancelled order or cancelling a shipped one.
  */
 public record Order(
         UUID id,
@@ -34,7 +43,7 @@ public record Order(
     public static final int MAX_ADDRESS_LENGTH = 500;
 
     public enum Status {
-        PLACED(0), CONFIRMED(1), SHIPPED(2), DELIVERED(3), CANCELLED(-1);
+        PLACED(0), CONFIRMED(1), CANCELLATION_REQUESTED(1), SHIPPED(2), DELIVERED(3), CANCELLED(-1);
 
         private final int progress;
 
@@ -94,38 +103,89 @@ public record Order(
         return withStatus(Status.CONFIRMED, null, now);
     }
 
+    /** The parcel has left. Also while a cancellation is pending: then the dispatch won the race. */
     public Order ship(Instant now) {
         if (status.isAtOrBeyond(Status.SHIPPED)) {
             return this;
         }
-        if (status != Status.CONFIRMED) {
+        if (status != Status.CONFIRMED && status != Status.CANCELLATION_REQUESTED) {
             throw new IllegalOrderTransitionException(id, status, "ship");
         }
         return withStatus(Status.SHIPPED, null, now);
     }
 
-    /** A delivery may be reported before the shipment notice arrives; CONFIRMED -> DELIVERED is allowed. */
+    /**
+     * Only a shipped order can be delivered. Dispatch and delivery arrive on the same topic with the
+     * order id as key, so delivery never overtakes dispatch in normal operation. If it seems to, the
+     * dispatch was dead-lettered: accepting the delivery would mark the order delivered while the
+     * catalog never committed its stock. Refusing sends this event to the dead-letter topic too, next
+     * to the dispatch it depends on.
+     */
     public Order deliver(Instant now) {
         if (status == Status.DELIVERED) {
             return this;
         }
-        if (status != Status.CONFIRMED && status != Status.SHIPPED) {
+        if (status != Status.SHIPPED) {
             throw new IllegalOrderTransitionException(id, status, "deliver");
         }
         return withStatus(Status.DELIVERED, null, now);
     }
 
+    /**
+     * Cancels an order that is not confirmed yet: no shipment exists, so the order decides alone.
+     * A confirmed order cannot be cancelled this way; see {@link #requestCancellation}.
+     */
     public Order cancel(String reason, Instant now) {
         if (status == Status.CANCELLED) {
             return this;
         }
-        if (status != Status.PLACED && status != Status.CONFIRMED) {
+        if (status != Status.PLACED) {
             throw new IllegalOrderTransitionException(id, status, "cancel");
         }
+        return withStatus(Status.CANCELLED, requiredReason(reason), now);
+    }
+
+    /** The customer wants to cancel a confirmed order; shipping will accept or refuse. */
+    public Order requestCancellation(String reason, Instant now) {
+        if (status == Status.CANCELLATION_REQUESTED || status == Status.CANCELLED) {
+            return this;
+        }
+        if (status != Status.CONFIRMED) {
+            throw new IllegalOrderTransitionException(id, status, "request cancellation");
+        }
+        return withStatus(Status.CANCELLATION_REQUESTED, requiredReason(reason), now);
+    }
+
+    /** Shipping stopped the shipment: the order is cancelled, with the reason the customer gave. */
+    public Order cancellationAccepted(Instant now) {
+        if (status == Status.CANCELLED) {
+            return this;
+        }
+        if (status != Status.CANCELLATION_REQUESTED) {
+            throw new IllegalOrderTransitionException(id, status, "accept cancellation");
+        }
+        return withStatus(Status.CANCELLED, cancellationReason, now);
+    }
+
+    /**
+     * Shipping could not stop the shipment. Normally the order is already SHIPPED by then (the
+     * dispatch precedes the refusal on the topic) and nothing changes; otherwise it is confirmed again.
+     */
+    public Order cancellationRefused(Instant now) {
+        if (status == Status.CONFIRMED || status.isAtOrBeyond(Status.SHIPPED)) {
+            return this;
+        }
+        if (status != Status.CANCELLATION_REQUESTED) {
+            throw new IllegalOrderTransitionException(id, status, "refuse cancellation");
+        }
+        return withStatus(Status.CONFIRMED, null, now);
+    }
+
+    private static String requiredReason(String reason) {
         if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("A cancellation needs a reason");
         }
-        return withStatus(Status.CANCELLED, reason.trim(), now);
+        return reason.trim();
     }
 
     private Order withStatus(Status newStatus, String reason, Instant now) {

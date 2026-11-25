@@ -2,6 +2,8 @@ package io.github.ffetih.ecommerce.messaging.inbox;
 
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import io.github.ffetih.ecommerce.messaging.MessagingTestcontainers;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
@@ -51,7 +53,13 @@ class InboxIT {
     Inbox inbox;
 
     @Autowired
+    TransactionTemplate transactions;
+
+    @Autowired
     RecordingConsumer consumer;
+
+    @Autowired
+    MeterRegistry meters;
 
     record Step(int failTimes) {
     }
@@ -139,6 +147,7 @@ class InboxIT {
     void malformedMessageGoesToTheDeadLetterTopicAndTheNextMessageIsProcessed() throws Exception {
         String poison = "this is not json " + UUID.randomUUID();
         UUID next = UUID.randomUUID();
+        double counted = deadLettersCounted("MalformedEventException");
 
         kafka.send(TOPIC, "k", poison).get();
         kafka.send(TOPIC, "k", envelope(next, 0)).get();
@@ -153,6 +162,22 @@ class InboxIT {
         String reason = header(deadLetter, "kafka_dlt-exception-fqcn") + " " + header(deadLetter, "kafka_dlt-exception-cause-fqcn");
         assertThat(reason).contains("MalformedEventException");
         assertThat(header(deadLetter, "kafka_dlt-original-topic")).isEqualTo(TOPIC);
+        assertThat(deadLettersCounted("MalformedEventException")).isEqualTo(counted + 1);
+    }
+
+    /** Expiry is why the retention must outlive the topic's: a forgotten id counts as new again. */
+    @Test
+    void forgetsEventIdsOlderThanTheRetentionAndOnlyThose() {
+        String consumer = "inbox-it.retention-" + UUID.randomUUID();
+        UUID old = UUID.randomUUID();
+        UUID recent = UUID.randomUUID();
+        insertProcessed(consumer, old, Duration.ofDays(31));
+        insertProcessed(consumer, recent, Duration.ofDays(29));
+
+        assertThat(inbox.deleteExpired()).isGreaterThanOrEqualTo(1);
+
+        assertThat(firstDelivery(consumer, old)).as("forgotten, so new again").isTrue();
+        assertThat(firstDelivery(consumer, recent)).as("still remembered").isFalse();
     }
 
     @Test
@@ -173,6 +198,27 @@ class InboxIT {
     private int effects(UUID eventId) {
         return jdbc.sql("SELECT count(*) FROM it_effects WHERE event_id = :id")
                 .param("id", eventId).query(Integer.class).single();
+    }
+
+    private double deadLettersCounted(String exception) {
+        Counter counter = meters.find(DeadLetterCounter.METRIC).tag("topic", TOPIC).tag("exception", exception).counter();
+        return counter == null ? 0 : counter.count();
+    }
+
+    private boolean firstDelivery(String consumer, UUID eventId) {
+        Boolean first = transactions.execute(status -> inbox.markProcessed(consumer, eventId));
+        return Boolean.TRUE.equals(first);
+    }
+
+    private void insertProcessed(String consumer, UUID eventId, Duration ago) {
+        jdbc.sql("""
+                        INSERT INTO inbox_messages (consumer, event_id, processed_at)
+                        VALUES (:consumer, :eventId, now() - make_interval(secs => :seconds))
+                        """)
+                .param("consumer", consumer)
+                .param("eventId", eventId)
+                .param("seconds", ago.toSeconds())
+                .update();
     }
 
     private static void awaitUntil(Duration timeout, BooleanSupplier condition) throws InterruptedException {

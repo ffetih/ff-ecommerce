@@ -33,3 +33,6 @@ CREATE TABLE IF NOT EXISTS inbox_messages (
     processed_at     timestamptz    NOT NULL DEFAULT now(),
     PRIMARY KEY (consumer, event_id)
 );
+
+-- Retention cleanup forgets old event ids.
+CREATE INDEX IF NOT EXISTS inbox_messages_processed_at ON inbox_messages (processed_at);

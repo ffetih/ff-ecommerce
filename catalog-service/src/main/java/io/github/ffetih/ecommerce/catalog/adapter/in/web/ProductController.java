@@ -58,6 +58,12 @@ class ProductController {
                 products.changePrice(Sku.of(sku), new Money(request.unitPrice(), currency(request.currency()))));
     }
 
+    /** Off sale: new orders for it are refused. Repeating the call answers the same. */
+    @PostMapping("/{sku}/deactivate")
+    ProductResponse deactivate(@PathVariable String sku) {
+        return ProductResponse.from(products.deactivate(Sku.of(sku)));
+    }
+
     private static java.util.Currency currency(String code) {
         return java.util.Currency.getInstance(code.trim().toUpperCase(java.util.Locale.ROOT));
     }

@@ -37,7 +37,9 @@ audience, and nothing else:
 `ResourceServerSecurity.build(http, allow -> …)` lists only what is allowed, by method and path, and
 always appends `anyRequest().denyAll()`. A service whose filter chains were not all built this way
 does not start, so neither Spring Boot's default chain ("any valid token, any endpoint") nor a
-hand-written chain can slip in.
+hand-written chain can slip in. The module also fixes the actuator: health stays open for probes,
+`/actuator/metrics` needs the `admin` role, because queue sizes and error counts help an attacker too.
+A monitoring system gets its own access in s09.
 
 **Identity comes from the token, never from the request.**
 

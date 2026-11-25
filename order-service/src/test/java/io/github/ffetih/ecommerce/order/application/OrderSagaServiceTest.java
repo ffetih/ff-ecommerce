@@ -41,6 +41,11 @@ class OrderSagaServiceTest {
         }
 
         @Override
+        public void cancellationRequested(Order order) {
+            published.add("cancellation requested: " + order.cancellationReason());
+        }
+
+        @Override
         public void orderCancelled(Order order) {
             published.add("cancelled: " + order.cancellationReason());
         }
@@ -135,5 +140,45 @@ class OrderSagaServiceTest {
 
         saga.cancelByCustomer(orderId, "changed my mind", Requester.customer(owner));
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
+    }
+
+    @Test
+    void cancellingAConfirmedOrderAsksShippingInsteadOfCancelling() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        published.clear();
+
+        Order requested = saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+
+        assertThat(requested.status()).isEqualTo(Order.Status.CANCELLATION_REQUESTED);
+        // Not "cancelled": catalog must not release the stock before shipping has stopped the parcel.
+        assertThat(published).containsExactly("cancellation requested: changed my mind");
+    }
+
+    @Test
+    void shippingAcceptingTheRequestCancelsTheOrderAndReleasesTheStock() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        published.clear();
+
+        saga.shipmentCancelled(UUID.randomUUID(), orderId);
+
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
+        assertThat(published).containsExactly("cancelled: changed my mind");
+    }
+
+    @Test
+    void aDispatchDuringThePendingRequestWinsAndTheRefusalChangesNothing() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        published.clear();
+
+        saga.shipmentDispatched(UUID.randomUUID(), orderId);
+        saga.cancellationRefused(UUID.randomUUID(), orderId);
+
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.SHIPPED);
+        assertThat(published).isEmpty();
     }
 }

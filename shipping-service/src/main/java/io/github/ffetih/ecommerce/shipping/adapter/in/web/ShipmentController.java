@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-/** Warehouse and carrier operations. Operator-only once authentication arrives in s05. */
+/** Warehouse and carrier operations for the back office: role {@code admin} (see SecurityConfiguration). */
 @RestController
 @RequestMapping("/api/v1/shipments")
 class ShipmentController {

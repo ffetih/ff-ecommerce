@@ -2,12 +2,16 @@ package io.github.ffetih.ecommerce.order.adapter.in.messaging;
 
 import io.github.ffetih.ecommerce.events.catalog.StockReservationFailed;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
+import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.shipping.CancellationRefused;
+import io.github.ffetih.ecommerce.events.shipping.ShipmentCancelled;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
+import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.Requester;
@@ -113,7 +117,65 @@ class SagaReactionsIT {
         awaitStatus(orderId, Order.Status.DELIVERED);
     }
 
+    @Test
+    void aDeliveryForAnOrderThatWasNeverShippedIsDeadLetteredAndChangesNothing() throws Exception {
+        UUID orderId = placedOrder();
+        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
+                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitStatus(orderId, Order.Status.CONFIRMED);
+
+        // As if shipment-dispatched had been dead-lettered: the delivery arrives without it.
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentDelivered.TYPE,
+                new ShipmentDelivered(UUID.randomUUID(), orderId));
+
+        assertThat(eventTypes(DeadLetters.topicFor(ShipmentDispatched.TOPIC), orderId, 1))
+                .containsExactly(ShipmentDelivered.TYPE);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.CONFIRMED);
+    }
+
+    @Test
+    void aConfirmedOrderIsCancelledOnlyOnceShippingHasStoppedTheParcel() throws Exception {
+        UUID orderId = confirmedOrder();
+
+        Order requested = saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+
+        assertThat(requested.status()).isEqualTo(Order.Status.CANCELLATION_REQUESTED);
+        assertThat(lifecycleEventTypes(orderId, 2)).containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE);
+
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentCancelled.TYPE, new ShipmentCancelled(UUID.randomUUID(), orderId));
+
+        awaitStatus(orderId, Order.Status.CANCELLED);
+        assertThat(orders.get(orderId, Requester.backOffice()).cancellationReason()).isEqualTo("changed my mind");
+        // Only now is catalog told to release the stock.
+        assertThat(lifecycleEventTypes(orderId, 3))
+                .containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE, OrderCancelled.TYPE);
+    }
+
+    @Test
+    void aDispatchDuringThePendingRequestShipsTheOrderAndNothingIsReleased() throws Exception {
+        UUID orderId = confirmedOrder();
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        UUID shipmentId = UUID.randomUUID();
+
+        // What shipping publishes when the dispatch wins: the dispatch, then the refusal.
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentDispatched.TYPE, new ShipmentDispatched(shipmentId, orderId, "TRK-2"));
+        publish(ShipmentDispatched.TOPIC, orderId, CancellationRefused.TYPE,
+                new CancellationRefused(shipmentId, orderId, "already dispatched"));
+
+        awaitStatus(orderId, Order.Status.SHIPPED);
+        assertThat(lifecycleEventTypes(orderId, 2)).containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.SHIPPED);
+    }
+
     // --- helpers -----------------------------------------------------------------------------
+
+    private UUID confirmedOrder() throws Exception {
+        UUID orderId = placedOrder();
+        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
+                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitStatus(orderId, Order.Status.CONFIRMED);
+        return orderId;
+    }
 
     private UUID placedOrder() {
         Order order = Order.place(UUID.randomUUID(),
@@ -136,6 +198,11 @@ class SagaReactionsIT {
 
     /** Event types order-service published for one order; keeps polling briefly to catch extras. */
     private List<String> lifecycleEventTypes(UUID orderId, int expected) {
+        return eventTypes(OrderPlaced.TOPIC, orderId, expected);
+    }
+
+    /** Event types on a topic for one order, read from the start; keeps polling briefly to catch extras. */
+    private List<String> eventTypes(String topic, UUID orderId, int expected) {
         Map<String, Object> config = Map.of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, TestcontainersConfiguration.kafkaBootstrapServers(),
                 ConsumerConfig.GROUP_ID_CONFIG, "saga-reactions-it-" + UUID.randomUUID(),
@@ -144,7 +211,7 @@ class SagaReactionsIT {
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         List<String> types = new ArrayList<>();
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config)) {
-            consumer.subscribe(List.of(OrderPlaced.TOPIC));
+            consumer.subscribe(List.of(topic));
             Instant deadline = Instant.now().plusSeconds(20);
             Instant settleUntil = null;
             while (Instant.now().isBefore(deadline) && (settleUntil == null || Instant.now().isBefore(settleUntil))) {

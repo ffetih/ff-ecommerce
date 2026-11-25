@@ -16,6 +16,9 @@ spring:
       enabled: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    admin:
+      # Topics that already exist get the declared retention as well (MessagingTopics).
+      modify-topic-configs: true
     consumer:
       # Fallback only: every listener names its own group (one group per subscribed topic).
       group-id: order-service
@@ -54,7 +57,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics
 
 ecommerce:
   clients:
@@ -62,3 +65,10 @@ ecommerce:
       base-url: ${CUSTOMER_SERVICE_URL:http://localhost:8082}
     catalog:
       base-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+  orders:
+    # Orders that wait too long are stopped through the normal cancellation gate (ADR-0007).
+    expiry:
+      placed-after: 30m
+      confirmed-after: 3d
+      scan-interval: 1m
+      batch-size: 100

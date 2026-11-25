@@ -83,11 +83,22 @@ class OrderController {
         return orders.forCustomer(whose, requester).stream().map(OrderResponse::from).toList();
     }
 
-    /** Possible until the parcel is dispatched; afterwards {@code 409}. Repeating it changes nothing. */
+    /**
+     * Cancels the order, or asks for it. Repeating it changes nothing.
+     * <ul>
+     *   <li>{@code 200}, status CANCELLED: the order was not confirmed yet and is cancelled.</li>
+     *   <li>{@code 202}, status CANCELLATION_REQUESTED: the order is confirmed; shipping decides
+     *       whether the parcel can still be stopped. Read the order again for the outcome.</li>
+     *   <li>{@code 409}: the order has been shipped.</li>
+     * </ul>
+     */
     @PostMapping("/{orderId}/cancel")
-    OrderResponse cancel(JwtAuthenticationToken caller, @PathVariable UUID orderId,
-                         @Valid @RequestBody CancelRequest request) {
-        return OrderResponse.from(saga.cancelByCustomer(orderId, request.reason(), Requesters.of(caller)));
+    ResponseEntity<OrderResponse> cancel(JwtAuthenticationToken caller, @PathVariable UUID orderId,
+                                         @Valid @RequestBody CancelRequest request) {
+        Order order = saga.cancelByCustomer(orderId, request.reason(), Requesters.of(caller));
+        return order.status() == Order.Status.CANCELLATION_REQUESTED
+                ? ResponseEntity.accepted().body(OrderResponse.from(order))
+                : ResponseEntity.ok(OrderResponse.from(order));
     }
 
     record CancelRequest(@NotBlank @Size(max = 500) String reason) {

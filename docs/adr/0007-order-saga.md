@@ -29,9 +29,15 @@ SHIPPED   ◄──────────────────────�
                                                     deliver ───► shipment-delivered
 DELIVERED ◄──────────────────────────────────────────────────────┘
 
-customer cancels (PLACED or CONFIRMED):
-order-cancelled ───► release reservation (if any)
-                └──────────────────────────────────► cancel shipment (if not dispatched)
+customer cancels a PLACED order (no shipment yet): order decides alone
+CANCELLED, order-cancelled ───► release reservation (if any)
+
+customer cancels a CONFIRMED order: shipping decides
+CANCELLATION_REQUESTED, cancellation-requested ──────────► shipment not dispatched?
+                                                    ├─ yes: cancel it ──► shipment-cancelled
+CANCELLED, order-cancelled ◄──────────────────────────────────────────────┘
+          └──► release reservation                  └─ no:  ──► cancellation-refused
+SHIPPED (dispatch came first) ◄───────────────────────────────────────────┘
 ```
 
 Topics and keys: `order.lifecycle`, `catalog.reservations`, `shipping.shipments`, all keyed by order id,
@@ -42,9 +48,15 @@ so the events of one order are consumed in order within each topic.
 | Situation | Compensation |
 | --- | --- |
 | Stock cannot be reserved | Catalog publishes `reservation-failed`; order is cancelled. Nothing was held. |
-| Customer cancels a confirmed order | `order-cancelled`; catalog releases, shipping cancels the not-yet-dispatched shipment. |
+| Customer cancels a placed order | `order-cancelled`; catalog releases whatever it reserved. No shipment exists yet. |
+| Customer cancels a confirmed order | `cancellation-requested`. Shipping cancels the shipment if it has not left and answers `shipment-cancelled`; only then does the order become CANCELLED and announce `order-cancelled`, so catalog releases. |
 | `stock-reserved` arrives for an order that was cancelled meanwhile | Order publishes `order-cancelled` again so catalog releases the late reservation. |
-| Shipment already dispatched | The order cannot be cancelled any more; it becomes a return (later sprint). |
+| Shipment already dispatched | Shipping answers `cancellation-refused`. The dispatch precedes the refusal on the topic, so the order is already SHIPPED and stays so. Afterwards it can only become a return (s08). |
+| `order-confirmed` arrives after shipping accepted the order's cancellation without a shipment (a dead letter replayed late) | Shipping remembers such orders (`cancelled_orders`) and creates no shipment: the stock is already released. |
+| `order-placed` arrives again after the reservation was released | Catalog answers `reservation-failed` instead of claiming the stock again; the cancelled order ignores it. |
+| `shipment-delivered` arrives for an order that was never shipped | Refused, so it goes to the dead-letter topic next to the dispatch it depends on (which can only be missing because it was dead-lettered itself). Accepting it would show a delivered order whose stock was never committed. |
+| A placed order is not confirmed within 30 minutes | Order expiry cancels it ("Not confirmed in time") and announces `order-cancelled`, so catalog releases whatever it reserved. |
+| A confirmed order is not dispatched within 3 days | Order expiry requests its cancellation ("Not dispatched in time"); from there it is the customer-cancel path above, so shipping still decides. |
 
 **Business failures are results, not exceptions.** A participant that fails a step for a business
 reason (insufficient stock) records the failure event in the *same* transaction as its inbox entry and
@@ -52,13 +64,34 @@ commits. Exceptions are reserved for technical failures, which roll everything b
 dead-lettered. This is the rule that would have prevented the previous version's lost compensation
 (ADR-0004).
 
-**Known limitation: cancel versus dispatch.** Dispatch is the saga's point of no return. If a customer
-cancels a confirmed order at the same moment the warehouse dispatches it, order-service has already
-accepted the cancellation while the parcel is on its way. Catalog and order-service then receive
-`shipment-dispatched` for a released reservation and a cancelled order; both refuse it, and the event lands
-in the dead-letter topic where it is visible for manual handling (a return). The proper fix is to make
-cancellation of a confirmed order a *request* that shipping accepts or rejects before order-service
-commits to it. It is scheduled for s06 (saga hardening), before payments make the gap a financial one.
+**Cancellation of a confirmed order is a request; shipping decides.** Dispatch is the saga's point of
+no return, and shipping owns it. Until s06 order-service cancelled on its own and informed the others:
+if the warehouse dispatched at the same moment, the order was cancelled and its stock released while
+the parcel was on its way, and the dispatch event ended in a dead-letter topic. Now a confirmed order
+asks (CANCELLATION_REQUESTED), and the party that knows whether the parcel has left answers.
+
+Inside shipping, a dispatch and a cancellation request for the same shipment are settled by the
+shipment's version (optimistic locking): one transaction commits, the other fails and is repeated (the
+HTTP dispatch as a 409 to the warehouse, the request by the Kafka error handler), and then sees the
+first one's outcome. Every interleaving ends in one of two consistent states, cancelled with the stock
+released or shipped with the stock committed; `CancellationRaceIT` and `CancellationRaceE2EIT` repeat
+the race to show it. The cost is one more round trip and a state the customer can see: cancelling a
+confirmed order answers 202, and the outcome follows.
+
+**Orders that stop moving expire.** An event that ends in a dead-letter topic halts its order: a
+placed order whose `stock-reserved` never arrives keeps its reservation, and a confirmed order nobody
+dispatches holds stock forever. Order-service therefore scans for orders that have stayed PLACED or
+CONFIRMED too long (`ecommerce.orders.expiry`, 30 minutes and 3 days by default, measured from the
+order's last change) and stops them through the same gate a customer uses: a placed order is cancelled,
+a confirmed one is asked to cancel, so expiry can never overtake a dispatch. CANCELLATION_REQUESTED has
+no timer; it waits for shipping's answer. Each order is expired in its own transaction and locked with
+`FOR UPDATE SKIP LOCKED`, so several instances can scan at once without expiring an order twice
+(`OrderExpiryIT`).
+
+Expiry hides the cause. An order cancelled "Not confirmed in time" looks like a normal timeout while
+its `stock-reserved` sits in a dead-letter topic, so expiry is only safe together with the dead-letter
+metric (`messaging.dead.letters`, ADR-0005): the metric says that something broke, expiry keeps the stock from staying locked
+meanwhile.
 
 ## Consequences
 

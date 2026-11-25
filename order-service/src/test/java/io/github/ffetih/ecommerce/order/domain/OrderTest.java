@@ -31,6 +31,7 @@ class OrderTest {
         return switch (status) {
             case PLACED -> placed();
             case CONFIRMED -> placed().confirm(NOW);
+            case CANCELLATION_REQUESTED -> placed().confirm(NOW).requestCancellation("changed my mind", NOW);
             case SHIPPED -> placed().confirm(NOW).ship(NOW);
             case DELIVERED -> placed().confirm(NOW).ship(NOW).deliver(NOW);
             case CANCELLED -> placed().cancel("customer request", NOW);
@@ -71,8 +72,9 @@ class OrderTest {
     }
 
     @Test
-    void acceptsADeliveryReportedBeforeTheShipmentNotice() {
-        assertThat(in(Order.Status.CONFIRMED).deliver(NOW).status()).isEqualTo(Order.Status.DELIVERED);
+    void refusesToDeliverAnOrderThatWasNeverShipped() {
+        // Delivery never overtakes dispatch on the topic; if it seems to, the dispatch was dead-lettered.
+        assertIllegal(Order.Status.CONFIRMED, order -> order.deliver(NOW));
     }
 
     @ParameterizedTest
@@ -90,8 +92,16 @@ class OrderTest {
         if (status == Order.Status.DELIVERED) {
             assertThat(order.deliver(NOW.plusSeconds(60))).as("repeated deliver").isSameAs(order);
         }
+        if (status == Order.Status.CANCELLATION_REQUESTED) {
+            assertThat(order.requestCancellation("again", NOW.plusSeconds(60))).as("repeated request").isSameAs(order);
+        }
         if (status == Order.Status.CANCELLED) {
             assertThat(order.cancel("again", NOW.plusSeconds(60))).as("repeated cancel").isSameAs(order);
+            assertThat(order.requestCancellation("again", NOW.plusSeconds(60))).as("late request").isSameAs(order);
+            assertThat(order.cancellationAccepted(NOW.plusSeconds(60))).as("repeated acceptance").isSameAs(order);
+        }
+        if (status == Order.Status.SHIPPED || status == Order.Status.DELIVERED || status == Order.Status.CONFIRMED) {
+            assertThat(order.cancellationRefused(NOW.plusSeconds(60))).as("refusal after the fact").isSameAs(order);
         }
     }
 
@@ -103,12 +113,44 @@ class OrderTest {
         assertIllegal(Order.Status.CANCELLED, order -> order.deliver(NOW));
         assertIllegal(Order.Status.SHIPPED, order -> order.cancel("too late", NOW));
         assertIllegal(Order.Status.DELIVERED, order -> order.cancel("too late", NOW));
+        // A confirmed order has a shipment: only shipping can stop it, so it is a request.
+        assertIllegal(Order.Status.CONFIRMED, order -> order.cancel("directly", NOW));
+        assertIllegal(Order.Status.PLACED, order -> order.requestCancellation("too early", NOW));
+        assertIllegal(Order.Status.SHIPPED, order -> order.requestCancellation("too late", NOW));
+        assertIllegal(Order.Status.CONFIRMED, order -> order.cancellationAccepted(NOW));
+        assertIllegal(Order.Status.PLACED, order -> order.cancellationRefused(NOW));
+        assertIllegal(Order.Status.CANCELLED, order -> order.ship(NOW));
     }
 
     @Test
     void cancellationNeedsAReasonAndKeepsIt() {
         assertThatIllegalArgumentException().isThrownBy(() -> placed().cancel(" ", NOW));
-        assertThat(in(Order.Status.CONFIRMED).cancel(" out of stock ", NOW).cancellationReason()).isEqualTo("out of stock");
+        assertThatIllegalArgumentException().isThrownBy(() -> in(Order.Status.CONFIRMED).requestCancellation(" ", NOW));
+        assertThat(placed().cancel(" out of stock ", NOW).cancellationReason()).isEqualTo("out of stock");
+    }
+
+    @Test
+    void anAcceptedRequestCancelsWithTheCustomersReason() {
+        Order cancelled = in(Order.Status.CONFIRMED).requestCancellation(" changed my mind ", NOW).cancellationAccepted(NOW);
+
+        assertThat(cancelled.status()).isEqualTo(Order.Status.CANCELLED);
+        assertThat(cancelled.cancellationReason()).isEqualTo("changed my mind");
+    }
+
+    @Test
+    void aRefusedRequestLeavesTheOrderConfirmed() {
+        Order refused = in(Order.Status.CANCELLATION_REQUESTED).cancellationRefused(NOW);
+
+        assertThat(refused.status()).isEqualTo(Order.Status.CONFIRMED);
+        assertThat(refused.cancellationReason()).isNull();
+    }
+
+    @Test
+    void aDispatchDuringThePendingRequestShipsTheOrderAndTheLateRefusalChangesNothing() {
+        Order shipped = in(Order.Status.CANCELLATION_REQUESTED).ship(NOW);
+
+        assertThat(shipped.status()).isEqualTo(Order.Status.SHIPPED);
+        assertThat(shipped.cancellationRefused(NOW)).isSameAs(shipped);
     }
 
     private static void assertIllegal(Order.Status from, UnaryOperator<Order> step) {

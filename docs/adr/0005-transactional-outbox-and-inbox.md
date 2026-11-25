@@ -29,13 +29,23 @@ transaction as the business change. `Outbox.append` refuses to run without an ac
 - Failed rows are retried with exponential backoff (capped). They are never dropped: an event that is
   silently lost leaves services permanently inconsistent, whereas a stuck key is visible
   (`attempts`, `last_error`, age of the oldest pending row) and recovers by itself once the cause is fixed.
-- Published rows are deleted after a retention period (default 7 days).
+- Published rows are deleted after a retention period (default 7 days), hourly, in batches of 1000
+  until none are left.
 
 Per-key order equals commit order because writers of one aggregate are serialized by its row lock, so
 the outbox row ids of one key are assigned in commit order.
 
 **Inbox (consumer side).** Delivery is at least once. A consumer records `(consumer, event_id)` in
 `inbox_messages` in the same transaction as its own change, and skips events it has already recorded.
+
+**Retention: the inbox outlives the topic.** An event id may be forgotten only once Kafka can no longer
+deliver the event again. Kafka redelivers more than a retry: a consumer group whose committed offsets
+are lost (they expire while the service is down, or an operator resets them) starts from the oldest
+record still in the topic. So every topic is created with an explicit retention (`MessagingTopics`,
+`ecommerce.messaging.topics.retention`, 7 days; existing topics are updated at startup), the inbox
+keeps ids for 30 days (`ecommerce.messaging.inbox.retention`), and a service whose inbox retention is
+not longer than its topic retention does not start. Dead-letter topics keep records for 30 days, time
+for a person to fix and replay them. An hourly job deletes expired inbox rows in batches.
 
 **Failed consumption.** A record whose processing throws is retried in place a few times with growing
 pauses (0.5 s, 1 s, 2 s), then published to `<topic>-dlt` so the partition can move on. Messages that
@@ -45,6 +55,19 @@ with at least as many partitions as their source; if publishing to one fails, th
 rather than skipped, so the partition stops until the topic is fixed. Values are read as strings through `ErrorHandlingDeserializer`, so even
 undecodable bytes reach the error handler instead of failing inside the consumer's poll loop.
 
+**Monitoring.** Both failure modes are silent unless measured, so the module reports them through
+Micrometer in every service that uses it:
+
+| Metric | Kind | Healthy | Worth an alert |
+| --- | --- | --- | --- |
+| `outbox.pending` | gauge, messages | close to 0 | keeps growing |
+| `outbox.oldest.pending.age` | gauge, seconds | about a second | over a minute: a key is stuck or Kafka is unreachable |
+| `messaging.dead.letters{topic, exception}` | counter | absent or flat | any increase: a step of some flow did not happen |
+
+The gauges are read from the database when metrics are collected, with the database clock; a failed
+read shows as NaN, not as 0. A dead letter is counted only after the dead-letter topic has taken it.
+The endpoint `/actuator/metrics` needs the `admin` role (ADR-0008).
+
 **Schema.** The DDL lives in `messaging/src/main/resources/messaging-schema.sql`; each service copies it
 into its own Flyway migration, keeping full ownership of its schema.
 
@@ -53,7 +76,7 @@ into its own Flyway migration, keeping full ownership of its schema.
 - No distributed transaction is needed, and no event is lost or reordered per key.
 - Consumers must be idempotent; the inbox makes that a one-line check.
 - One poisoned event blocks its own key until fixed. This is deliberate and needs monitoring: the age
-  of the oldest unpublished row and the dead-letter count arrive in s06, dashboards and alerts in s09.
+  of the oldest unpublished row and the dead-letter count (see Monitoring); dashboards and alerts follow in s09.
 - Events are delivered with a small delay (the poll interval).
 
 ## Alternatives considered

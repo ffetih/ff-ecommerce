@@ -122,6 +122,20 @@ class CatalogApiIT {
     }
 
     @Test
+    void aDeactivatedProductStaysVisibleAsInactive() {
+        String sku = createProductWithStock(0);
+
+        Response deactivated = call(HttpMethod.POST, "/api/v1/products/" + sku + "/deactivate", null);
+        Response again = call(HttpMethod.POST, "/api/v1/products/" + sku + "/deactivate", null);
+
+        assertThat(deactivated.status()).isEqualTo(200);
+        assertThat(deactivated.body()).contains("\"active\":false");
+        assertThat(again.status()).isEqualTo(200);
+        assertThat(callAs(null, HttpMethod.GET, "/api/v1/products/" + sku, null).body()).contains("\"active\":false");
+        assertThat(call(HttpMethod.POST, "/api/v1/products/NO-SUCH-SKU/deactivate", null).status()).isEqualTo(404);
+    }
+
+    @Test
     void anyoneMayBrowseTheCatalog() {
         String sku = createProductWithStock(0);
 
@@ -142,12 +156,15 @@ class CatalogApiIT {
             int expected = caller == null ? 401 : 403;
             assertThat(callAs(caller, HttpMethod.POST, "/api/v1/products", product).status()).isEqualTo(expected);
             assertThat(callAs(caller, HttpMethod.PUT, "/api/v1/products/" + sku + "/price", price).status()).isEqualTo(expected);
+            assertThat(callAs(caller, HttpMethod.POST, "/api/v1/products/" + sku + "/deactivate", null).status())
+                    .isEqualTo(expected);
             assertThat(callAs(caller, HttpMethod.GET, "/api/v1/stock/" + sku, null).status()).isEqualTo(expected);
             assertThat(callAs(caller, HttpMethod.POST, "/api/v1/stock/" + sku + "/receipts", receipt).status()).isEqualTo(expected);
             assertThat(callAs(caller, HttpMethod.PUT, "/api/v1/reservations/" + UUID.randomUUID(), reservation).status())
                     .isEqualTo(expected);
         }
         assertThat(callAs(admin(), HttpMethod.GET, "/api/v1/stock/" + sku, null).body()).contains("\"onHand\":3");
+        assertThat(callAs(null, HttpMethod.GET, "/api/v1/products/" + sku, null).body()).contains("\"active\":true");
     }
 
     @Test

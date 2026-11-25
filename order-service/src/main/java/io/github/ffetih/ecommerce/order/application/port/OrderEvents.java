@@ -9,6 +9,9 @@ public interface OrderEvents {
 
     void orderConfirmed(Order order);
 
+    /** Asks shipping to stop the shipment of a confirmed order; not a cancellation yet. */
+    void cancellationRequested(Order order);
+
     /** Also used as compensation: whoever still holds something for this order gives it back. */
     void orderCancelled(Order order);
 }

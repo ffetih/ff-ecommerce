@@ -60,6 +60,20 @@ class ReservationLifecycleIT {
     }
 
     @Test
+    void aReleasedReservationIsNotReservedAgainUnderTheSameOrderId() {
+        Sku sku = productWithStock(products, stock, 10);
+        UUID orderId = UUID.randomUUID();
+        reservations.reserve(orderId, List.of(line(sku, 3)));
+        reservations.release(orderId);
+
+        assertThatThrownBy(() -> reservations.reserve(orderId, List.of(line(sku, 3))))
+                .isInstanceOf(ConflictException.class)
+                .hasMessageContaining("released");
+        assertThat(stock.get(sku).available()).isEqualTo(10);
+        assertThat(reservations.get(orderId).status()).isEqualTo(Reservation.Status.RELEASED);
+    }
+
+    @Test
     void aShortLineFailsTheWholeReservationAndLeavesNothingBehind() {
         Sku plenty = productWithStock(products, stock, 10);
         Sku scarce = productWithStock(products, stock, 1);

@@ -132,6 +132,22 @@ class ResourceServerIT {
     }
 
     @Test
+    void metricsAreForOperatorsOnly() {
+        String admin = issuer.token("ad000000-0000-4000-8000-000000000003").audiences("test-service").roles("admin").sign();
+
+        for (String path : new String[] {"/actuator/metrics", "/actuator/metrics/jvm.threads.live"}) {
+            assertThat(get(path, null).status()).as("anonymous %s", path).isEqualTo(401);
+            assertThat(get(path, customer()).status()).as("customer %s", path).isEqualTo(403);
+            assertThat(get(path, admin).status()).as("admin %s", path).isEqualTo(200);
+        }
+    }
+
+    @Test
+    void healthStaysOpenForProbes() {
+        assertThat(get("/actuator/health", null).status()).isEqualTo(200);
+    }
+
+    @Test
     void anOpenEndpointNeedsNoToken() {
         assertThat(get("/api/test/open", null).status()).isEqualTo(200);
     }

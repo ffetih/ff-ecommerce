@@ -16,13 +16,13 @@ import io.github.ffetih.ecommerce.events.catalog.StockChanged;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
-import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
+import io.github.ffetih.ecommerce.messaging.MessagingTopics;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 
 import java.time.Clock;
+import java.util.List;
 
 /** Wires the framework-free application services to their adapters. */
 @Configuration(proxyBeanMethods = false)
@@ -57,17 +57,9 @@ class CatalogConfiguration {
      * them is idempotent, so every service declares what it needs and startup order does not matter.
      */
     @Bean
-    KafkaAdmin.NewTopics catalogTopics() {
-        return new KafkaAdmin.NewTopics(
-                topic(StockChanged.TOPIC),
-                topic(StockReserved.TOPIC),
-                topic(OrderPlaced.TOPIC),
-                topic(DeadLetters.topicFor(OrderPlaced.TOPIC)),
-                topic(ShipmentDispatched.TOPIC),
-                topic(DeadLetters.topicFor(ShipmentDispatched.TOPIC)));
-    }
-
-    private static org.apache.kafka.clients.admin.NewTopic topic(String name) {
-        return TopicBuilder.name(name).partitions(Topics.PARTITIONS).replicas(1).build();
+    KafkaAdmin.NewTopics catalogTopics(MessagingTopics topics) {
+        return topics.declare(Topics.PARTITIONS,
+                List.of(StockChanged.TOPIC, StockReserved.TOPIC),
+                List.of(OrderPlaced.TOPIC, ShipmentDispatched.TOPIC));
     }
 }

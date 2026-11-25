@@ -115,6 +115,29 @@ class SagaParticipationIT {
         assertThat(stock.get(sku).available()).isEqualTo(10);
     }
 
+    /**
+     * An order-placed the inbox no longer recognizes (a replay after the inbox row expired) arrives for
+     * a cancelled order. Catalog must not claim the stock is reserved again: nothing holds it.
+     */
+    @Test
+    void aReplayedOrderPlacedAfterTheReleaseIsRefusedAndHoldsNothing() throws Exception {
+        Sku sku = productWithStock(products, stock, 10);
+        UUID orderId = UUID.randomUUID();
+        publishOrderPlaced(UUID.randomUUID(), orderId, sku, 4);
+        awaitUntil(() -> stock.get(sku).reserved() == 4);
+        publish(OrderPlaced.TOPIC, orderId, OrderCancelled.TYPE, new OrderCancelled(orderId, "customer request"));
+        awaitUntil(() -> stock.get(sku).reserved() == 0);
+
+        publishOrderPlaced(UUID.randomUUID(), orderId, sku, 4);
+
+        List<EventEnvelope> replies = repliesFor(orderId, 2);
+        assertThat(replies).extracting(EventEnvelope::eventType)
+                .containsExactly(StockReserved.TYPE, StockReservationFailed.TYPE);
+        assertThat(json.treeToValue(replies.get(1).data(), StockReservationFailed.class).reason()).contains("released");
+        assertThat(stock.get(sku).reserved()).isZero();
+        assertThat(reservations.get(orderId).status()).isEqualTo(Reservation.Status.RELEASED);
+    }
+
     @Test
     void shipmentDispatchedCommitsTheReservation() throws Exception {
         Sku sku = productWithStock(products, stock, 10);

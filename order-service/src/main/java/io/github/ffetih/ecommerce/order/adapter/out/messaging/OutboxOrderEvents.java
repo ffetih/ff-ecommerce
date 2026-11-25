@@ -1,5 +1,6 @@
 package io.github.ffetih.ecommerce.order.adapter.out.messaging;
 
+import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
@@ -40,6 +41,12 @@ class OutboxOrderEvents implements OrderEvents {
                 order.lines().stream().map(line -> new OrderConfirmed.Line(line.sku().value(), line.quantity())).toList(),
                 order.shippingAddress());
         append(order, OrderConfirmed.TYPE, OrderConfirmed.VERSION, event);
+    }
+
+    @Override
+    public void cancellationRequested(Order order) {
+        append(order, OrderCancellationRequested.TYPE, OrderCancellationRequested.VERSION,
+                new OrderCancellationRequested(order.id(), order.cancellationReason()));
     }
 
     @Override

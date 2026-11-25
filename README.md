@@ -25,7 +25,7 @@ and tests that prove what the sprint claims.
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
 | s05 | Security: Keycloak, OAuth2 resource servers with enforced deny-by-default, identity and ownership from the token, service-to-service tokens, routing-only gateway | done |
-| s06 | Saga hardening: cancel/dispatch race, delivery after dispatch, reservation expiry, outbox and dead-letter metrics | next |
+| s06 | Saga hardening: cancellation decided by shipping, delivery only after dispatch, order expiry, outbox and dead-letter metrics, product deactivation, inbox retention | done |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -53,9 +53,10 @@ around the gateway meets the same checks.
 | `POST` | `/api/v1/products` | Create a product (with an empty stock row) |
 | `GET` | `/api/v1/products?sku=A&sku=B` | Current prices for the given SKUs |
 | `PUT` | `/api/v1/products/{sku}/price` | Change a price |
+| `POST` | `/api/v1/products/{sku}/deactivate` | Take off sale: new orders are refused, placed ones complete |
 | `POST` | `/api/v1/stock/{sku}/receipts` | Goods receipt, idempotent by `referenceId` |
 | `GET` | `/api/v1/stock/{sku}` | `onHand`, `reserved`, `available` |
-| `PUT` | `/api/v1/reservations/{orderId}` | Reserve all order lines or none; idempotent by order id |
+| `PUT` | `/api/v1/reservations/{orderId}` | Reserve all order lines or none; idempotent by order id, never again after a release |
 | `POST` | `/api/v1/reservations/{orderId}/commit` | Order shipped: reserved units leave stock |
 | `POST` | `/api/v1/reservations/{orderId}/release` | Order cancelled: reserved units become available |
 
@@ -88,7 +89,7 @@ customers.
 | `POST` | `/api/v1/orders` | customer | Place an order for the caller; requires an `Idempotency-Key` header (UUID per order attempt) |
 | `GET` | `/api/v1/orders/{orderId}` | owner, admin | One order with its lines and prices |
 | `GET` | `/api/v1/orders` | customer | The caller's orders, newest first (admin: `?customerId=…` for anyone's) |
-| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel before dispatch |
+| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel: `200` if not confirmed yet; `202` for a confirmed order, while shipping decides; `409` once shipped |
 
 The customer of an order is always the caller. Someone else's order answers `404`, like an unknown id,
 so order ids cannot be probed. order-service calls customer-service and catalog-service with its own
@@ -136,8 +137,15 @@ Fulfilment is a choreographed saga across order, catalog and shipping ([ADR-0007
 order-placed ──► catalog reserves ──► stock-reserved ──► order CONFIRMED ──► order-confirmed ──► shipment created
                          └──────────► reservation-failed ──► order CANCELLED
 shipment dispatched ──► catalog commits stock, order SHIPPED ──► shipment delivered ──► order DELIVERED
-customer cancels (before dispatch) ──► order-cancelled ──► catalog releases stock, shipping cancels the shipment
+customer cancels a placed order ──► order CANCELLED ──► order-cancelled ──► catalog releases stock
+customer cancels a confirmed order ──► order CANCELLATION_REQUESTED ──► shipping decides:
+    not dispatched ──► shipment cancelled ──► order CANCELLED ──► order-cancelled ──► catalog releases stock
+    dispatched     ──► cancellation refused ──► order stays SHIPPED
 ```
+
+Shipping decides cancellations of confirmed orders because only shipping knows whether the parcel has
+left: a cancellation racing a dispatch ends either cancelled or shipped, never both
+([ADR-0007](docs/adr/0007-order-saga.md)).
 
 Business failures (not enough stock) are published as events in the same transaction as the inbox entry;
 only technical failures roll back and are retried or dead-lettered ([ADR-0004](docs/adr/0004-explicit-transaction-boundaries.md)).
@@ -152,7 +160,10 @@ The `messaging` module gives every service the same guarantees ([ADR-0005](docs/
 - **Ordered relay:** events of one key are published in commit order; relay instances share work with
   `FOR UPDATE SKIP LOCKED`; a failing event blocks only its own key and is retried with backoff.
 - **Inbox:** consumers record processed event ids in their own transaction, so redeliveries have no effect.
+  Ids are kept 30 days, longer than topics keep events (7 days); a shorter setting stops the service.
 - **Dead letters:** failing records are retried briefly, then moved to `<topic>-dlt`; unreadable ones go there immediately.
+- **Metrics:** `outbox.pending`, `outbox.oldest.pending.age` (seconds) and `messaging.dead.letters`
+  (by topic and exception), at `/actuator/metrics/<name>` with an `admin` token.
 
 ## Build and test
 
