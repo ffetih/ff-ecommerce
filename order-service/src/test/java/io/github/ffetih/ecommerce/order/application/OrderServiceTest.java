@@ -36,6 +36,22 @@ class OrderServiceTest {
     private final FakeCustomers customers = new FakeCustomers();
     private final FakeCatalog catalog = new FakeCatalog();
     private final List<Order> publishedEvents = new ArrayList<>();
+    private final OrderEvents events = new OrderEvents() {
+        @Override
+        public void orderPlaced(Order order) {
+            publishedEvents.add(order);
+        }
+
+        @Override
+        public void orderConfirmed(Order order) {
+            throw new AssertionError("placing an order must not confirm it");
+        }
+
+        @Override
+        public void orderCancelled(Order order) {
+            throw new AssertionError("placing an order must not cancel it");
+        }
+    };
     private final Transactions inline = new Transactions() {
         @Override
         public <T> T inTransaction(Supplier<T> work) {
@@ -43,7 +59,7 @@ class OrderServiceTest {
         }
     };
 
-    private final OrderService service = new OrderService(orders, customers, catalog, publishedEvents::add, inline,
+    private final OrderService service = new OrderService(orders, customers, catalog, events, inline,
             Clock.fixed(Instant.parse("2026-11-25T10:00:00Z"), ZoneOffset.UTC));
 
     OrderServiceTest() {
@@ -133,7 +149,7 @@ class OrderServiceTest {
 
     // --- fakes ---------------------------------------------------------------------------------
 
-    static final class FakeOrders implements OrderRepository {
+    public static final class FakeOrders implements OrderRepository {
 
         private final Map<UUID, Order> byId = new HashMap<>();
         private final Map<String, StoredOrder> byKey = new HashMap<>();

@@ -52,6 +52,14 @@ commits. Exceptions are reserved for technical failures, which roll everything b
 dead-lettered. This is the rule that would have prevented the previous version's lost compensation
 (ADR-0004).
 
+**Known limitation: cancel versus dispatch.** Dispatch is the saga's point of no return. If a customer
+cancels a confirmed order at the same moment the warehouse dispatches it, order-service has already
+accepted the cancellation while the parcel is on its way. Catalog and order-service then receive
+`shipment-dispatched` for a released reservation and a cancelled order; both refuse it, and the event lands
+in the dead-letter topic where it is visible for manual handling (a return). The proper fix is to make
+cancellation of a confirmed order a *request* that shipping accepts or rejects before order-service
+commits to it; it is deferred until it is worth the extra round trip.
+
 ## Consequences
 
 - No coordinator to operate, and each service stays usable when another is down; events wait in Kafka.
