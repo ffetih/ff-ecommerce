@@ -85,9 +85,15 @@ public class OrderSagaService {
     }
 
     /**
-     * The customer cancels. Allowed until the parcel is dispatched; the order's state machine refuses it
-     * afterwards (409). Catalog and shipping react to the {@code order-cancelled} event. Only the
-     * order's customer or the back office may cancel; for anyone else the order does not exist (404).
+     * The customer cancels. Only the order's customer or the back office may; for anyone else the order
+     * does not exist (404).
+     * <ul>
+     *   <li>PLACED: cancelled at once and announced; catalog releases whatever it reserved.</li>
+     *   <li>CONFIRMED: a shipment exists, and only shipping knows whether it has left. The order
+     *       becomes CANCELLATION_REQUESTED and asks; shipping answers with
+     *       {@link #shipmentCancelled} or {@link #cancellationRefused}.</li>
+     *   <li>Already requested or cancelled: nothing changes. Shipped or delivered: refused (409).</li>
+     * </ul>
      */
     public Order cancelByCustomer(UUID orderId, String reason, Requester requester) {
         return transactions.inTransaction(() -> {
@@ -95,13 +101,43 @@ public class OrderSagaService {
             if (!requester.mayActFor(order.customerId())) {
                 throw new OrderNotFoundException(orderId);
             }
-            Order cancelled = order.cancel(reason, clock.instant());
+            if (order.status() == Order.Status.PLACED) {
+                Order cancelled = order.cancel(reason, clock.instant());
+                orders.update(cancelled);
+                events.orderCancelled(cancelled);
+                return cancelled;
+            }
+            Order requested = order.requestCancellation(reason, clock.instant());
+            if (requested != order) {
+                orders.update(requested);
+                events.cancellationRequested(requested);
+            }
+            return requested;
+        });
+    }
+
+    /**
+     * {@code shipping.shipment-cancelled}: shipping accepted the request. Now the order is cancelled,
+     * and the announcement tells catalog to release the reservation.
+     */
+    public void shipmentCancelled(UUID eventId, UUID orderId) {
+        transactions.inTransaction(() -> {
+            if (!processedEvents.firstDelivery(SHIPMENT_EVENTS_CONSUMER, eventId)) {
+                return null;
+            }
+            Order order = load(orderId);
+            Order cancelled = order.cancellationAccepted(clock.instant());
             if (cancelled != order) {
                 orders.update(cancelled);
                 events.orderCancelled(cancelled);
             }
-            return cancelled;
+            return null;
         });
+    }
+
+    /** {@code shipping.cancellation-refused}: the parcel had left; the order goes on (usually already SHIPPED). */
+    public void cancellationRefused(UUID eventId, UUID orderId) {
+        applyShipmentStep(eventId, orderId, order -> order.cancellationRefused(clock.instant()));
     }
 
     /** {@code shipping.shipment-dispatched}. */

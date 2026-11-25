@@ -75,9 +75,12 @@ class OrderSagaE2EIT {
         awaitOrderStatus(order, "CONFIRMED");
         awaitValue(() -> shipping.get("/api/v1/shipments?orderId=" + order), r -> r.status() == 200);
 
-        Api.Response cancelled = orders.post("/api/v1/orders/" + order + "/cancel", "{\"reason\":\"changed my mind\"}");
+        Api.Response requested = orders.post("/api/v1/orders/" + order + "/cancel", "{\"reason\":\"changed my mind\"}");
 
-        assertThat(cancelled.status()).isEqualTo(200);
+        // Confirmed: shipping decides whether the parcel can still be stopped (ADR-0007).
+        assertThat(requested.status()).isEqualTo(202);
+        assertThat(requested.text("status")).isEqualTo("CANCELLATION_REQUESTED");
+        awaitOrderStatus(order, "CANCELLED");
         awaitUntil(() -> stock(sku, "reserved") == 0 && stock(sku, "available") == 5);
         awaitUntil(() -> "CANCELLED".equals(shipping.get("/api/v1/shipments?orderId=" + order).text("status")));
     }

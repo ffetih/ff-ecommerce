@@ -1,5 +1,7 @@
 package io.github.ffetih.ecommerce.order.adapter.in.messaging;
 
+import io.github.ffetih.ecommerce.events.shipping.CancellationRefused;
+import io.github.ffetih.ecommerce.events.shipping.ShipmentCancelled;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
@@ -27,6 +29,10 @@ class ShipmentListener {
                     event.eventId(), reader.data(event, ShipmentDispatched.class).orderId());
             case ShipmentDelivered.TYPE -> saga.shipmentDelivered(
                     event.eventId(), reader.data(event, ShipmentDelivered.class).orderId());
+            case ShipmentCancelled.TYPE -> saga.shipmentCancelled(
+                    event.eventId(), reader.data(event, ShipmentCancelled.class).orderId());
+            case CancellationRefused.TYPE -> saga.cancellationRefused(
+                    event.eventId(), reader.data(event, CancellationRefused.class).orderId());
             default -> {
                 // not relevant for orders
             }

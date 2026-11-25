@@ -48,6 +48,11 @@ class OrderServiceTest {
         }
 
         @Override
+        public void cancellationRequested(Order order) {
+            publishedEvents.add(order);
+        }
+
+        @Override
         public void orderCancelled(Order order) {
             throw new AssertionError("placing an order must not cancel it");
         }

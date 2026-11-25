@@ -39,7 +39,7 @@ class OrderEntity {
     private UUID customerId;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @Column(nullable = false, length = 32)
     private Order.Status status;
 
     @Column(nullable = false, length = 3)

@@ -2,9 +2,12 @@ package io.github.ffetih.ecommerce.order.adapter.in.messaging;
 
 import io.github.ffetih.ecommerce.events.catalog.StockReservationFailed;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
+import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.shipping.CancellationRefused;
+import io.github.ffetih.ecommerce.events.shipping.ShipmentCancelled;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
@@ -130,7 +133,49 @@ class SagaReactionsIT {
         assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.CONFIRMED);
     }
 
+    @Test
+    void aConfirmedOrderIsCancelledOnlyOnceShippingHasStoppedTheParcel() throws Exception {
+        UUID orderId = confirmedOrder();
+
+        Order requested = saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+
+        assertThat(requested.status()).isEqualTo(Order.Status.CANCELLATION_REQUESTED);
+        assertThat(lifecycleEventTypes(orderId, 2)).containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE);
+
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentCancelled.TYPE, new ShipmentCancelled(UUID.randomUUID(), orderId));
+
+        awaitStatus(orderId, Order.Status.CANCELLED);
+        assertThat(orders.get(orderId, Requester.backOffice()).cancellationReason()).isEqualTo("changed my mind");
+        // Only now is catalog told to release the stock.
+        assertThat(lifecycleEventTypes(orderId, 3))
+                .containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE, OrderCancelled.TYPE);
+    }
+
+    @Test
+    void aDispatchDuringThePendingRequestShipsTheOrderAndNothingIsReleased() throws Exception {
+        UUID orderId = confirmedOrder();
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        UUID shipmentId = UUID.randomUUID();
+
+        // What shipping publishes when the dispatch wins: the dispatch, then the refusal.
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentDispatched.TYPE, new ShipmentDispatched(shipmentId, orderId, "TRK-2"));
+        publish(ShipmentDispatched.TOPIC, orderId, CancellationRefused.TYPE,
+                new CancellationRefused(shipmentId, orderId, "already dispatched"));
+
+        awaitStatus(orderId, Order.Status.SHIPPED);
+        assertThat(lifecycleEventTypes(orderId, 2)).containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.SHIPPED);
+    }
+
     // --- helpers -----------------------------------------------------------------------------
+
+    private UUID confirmedOrder() throws Exception {
+        UUID orderId = placedOrder();
+        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
+                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitStatus(orderId, Order.Status.CONFIRMED);
+        return orderId;
+    }
 
     private UUID placedOrder() {
         Order order = Order.place(UUID.randomUUID(),
