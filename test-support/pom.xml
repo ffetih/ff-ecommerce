@@ -12,7 +12,7 @@
 
     <artifactId>test-support</artifactId>
     <name>Test Support</name>
-    <description>Shared Testcontainers definitions and a test token issuer used by every service's integration tests</description>
+    <description>Shared Testcontainers definitions, a test token issuer and a stub HTTP server for integration tests</description>
 
     <dependencies>
         <dependency>

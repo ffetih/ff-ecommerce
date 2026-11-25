@@ -22,8 +22,8 @@ import java.util.concurrent.Future;
 
 /**
  * The whole system for end-to-end tests: one PostgreSQL (initialized with the same scripts as
- * compose.yaml), one Kafka, Keycloak with the same realm as compose.yaml, and the four services as
- * separate processes.
+ * compose.yaml), one Kafka, Keycloak with the same realm as compose.yaml, the four services and the
+ * gateway as separate processes. Tests talk to the gateway, as clients do.
  *
  * <p>Started once per test JVM and shared by all end-to-end test classes; stopped when the JVM exits.
  */
@@ -43,9 +43,11 @@ final class Platform implements AutoCloseable {
     final ServiceProcess customer;
     final ServiceProcess order;
     final ServiceProcess shipping;
+    final ServiceProcess gateway;
 
     private Platform(PostgreSQLContainer postgres, KafkaContainer kafka, GenericContainer<?> keycloak, Tokens tokens,
-                     ServiceProcess catalog, ServiceProcess customer, ServiceProcess order, ServiceProcess shipping) {
+                     ServiceProcess catalog, ServiceProcess customer, ServiceProcess order, ServiceProcess shipping,
+                     ServiceProcess gateway) {
         this.postgres = postgres;
         this.kafka = kafka;
         this.keycloak = keycloak;
@@ -54,6 +56,7 @@ final class Platform implements AutoCloseable {
         this.customer = customer;
         this.order = order;
         this.shipping = shipping;
+        this.gateway = gateway;
     }
 
     static synchronized Platform shared() throws Exception {
@@ -85,22 +88,31 @@ final class Platform implements AutoCloseable {
         String issuer = "http://" + keycloak.getHost() + ":" + keycloak.getMappedPort(8080) + "/realms/ecommerce";
         int catalogPort = freePort();
         int customerPort = freePort();
+        int orderPort = freePort();
+        int shippingPort = freePort();
 
         ServiceProcess catalog = ServiceProcess.start("catalog-service", jar(root, "catalog-service", version), catalogPort,
                 Map.of("CATALOG_DB_URL", jdbc + "catalog_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer));
         ServiceProcess customer = ServiceProcess.start("customer-service", jar(root, "customer-service", version), customerPort,
                 Map.of("CUSTOMER_DB_URL", jdbc + "customer_db", "ISSUER_URI", issuer));
-        ServiceProcess order = ServiceProcess.start("order-service", jar(root, "order-service", version), freePort(),
+        ServiceProcess order = ServiceProcess.start("order-service", jar(root, "order-service", version), orderPort,
                 Map.of("ORDER_DB_URL", jdbc + "order_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer,
                         "CATALOG_SERVICE_URL", "http://localhost:" + catalogPort,
                         "CUSTOMER_SERVICE_URL", "http://localhost:" + customerPort));
-        ServiceProcess shipping = ServiceProcess.start("shipping-service", jar(root, "shipping-service", version), freePort(),
+        ServiceProcess shipping = ServiceProcess.start("shipping-service", jar(root, "shipping-service", version), shippingPort,
                 Map.of("SHIPPING_DB_URL", jdbc + "shipping_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer));
 
-        Platform platform = new Platform(postgres, kafka, keycloak, new Tokens(issuer), catalog, customer, order, shipping);
+        ServiceProcess gateway = ServiceProcess.start("gateway", jar(root, "gateway", version), freePort(),
+                Map.of("CATALOG_SERVICE_URL", "http://localhost:" + catalogPort,
+                        "CUSTOMER_SERVICE_URL", "http://localhost:" + customerPort,
+                        "ORDER_SERVICE_URL", "http://localhost:" + orderPort,
+                        "SHIPPING_SERVICE_URL", "http://localhost:" + shippingPort));
+
+        Platform platform = new Platform(postgres, kafka, keycloak, new Tokens(issuer),
+                catalog, customer, order, shipping, gateway);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<?>> startups = new ArrayList<>();
-            for (ServiceProcess service : List.of(catalog, customer, order, shipping)) {
+            for (ServiceProcess service : List.of(catalog, customer, order, shipping, gateway)) {
                 startups.add(executor.submit(() -> {
                     service.awaitHealthy(Duration.ofMinutes(3));
                     return null;
@@ -128,7 +140,7 @@ final class Platform implements AutoCloseable {
 
     @Override
     public void close() {
-        for (ServiceProcess service : List.of(shipping, order, customer, catalog)) {
+        for (ServiceProcess service : List.of(gateway, shipping, order, customer, catalog)) {
             service.close();
         }
         keycloak.stop();

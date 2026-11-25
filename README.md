@@ -37,6 +37,13 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 | `customer-service` | 8082 | Customer accounts with unique, normalized emails; shipping addresses; deactivation |
 | `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle |
 | `shipping-service` | 8084 | One shipment per confirmed order; dispatch and delivery; cancellation before dispatch |
+| `gateway` | 8080 | Single entry point: routes each API path to its service; makes no authorization decision |
+
+Clients call the gateway (`http://localhost:8080/api/v1/...`) with a Keycloak access token. The
+gateway forwards the request and its `Authorization` header unchanged to the service that owns the
+path, and forwards nothing else (no documentation proxying, no catch-all route). Every service
+validates the token itself and decides access with deny-by-default rules, so a request that gets
+around the gateway meets the same checks.
 
 ### catalog-service API
 
@@ -91,6 +98,18 @@ then stores the order and an `order.order-placed` event in one transaction. Repe
 same key returns the same order (`200`, `Idempotent-Replayed: true`); the same key with a different body
 is a `409`. Unknown or retired products and inactive customers give `422`; an unavailable dependency gives
 `503` with `Retry-After`, and the request can be retried safely with the same key.
+
+### shipping-service API
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/shipments/{shipmentId}` | admin | One shipment with its lines and tracking number |
+| `GET` | `/api/v1/shipments?orderId=…` | admin | The shipment of an order |
+| `POST` | `/api/v1/shipments/{shipmentId}/dispatch` | admin | Hand over to the carrier: assigns the tracking number, commits the stock |
+| `POST` | `/api/v1/shipments/{shipmentId}/deliver` | admin | Mark as delivered |
+
+Shipments are created from `order.order-confirmed` events, not through the API. Customers cannot see
+their shipment yet; exposing the tracking number on the order is on the roadmap.
 
 ## Order saga
 

@@ -28,13 +28,28 @@
         <module>customer-service</module>
         <module>order-service</module>
         <module>shipping-service</module>
+        <module>gateway</module>
         <module>e2e-tests</module>
     </modules>
 
     <properties>
         <java.version>25</java.version>
+        <!-- Release train for Spring Boot 4.2 (used by the gateway). -->
+        <spring-cloud.version>2026.0.0</spring-cloud.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.cloud</groupId>
+                <artifactId>spring-cloud-dependencies</artifactId>
+                <version>${spring-cloud.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>

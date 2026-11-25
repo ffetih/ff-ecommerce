@@ -1,0 +1,46 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: gateway
+  threads:
+    virtual:
+      enabled: true
+  http:
+    clients:
+      # How long the gateway waits for a service. The read timeout is above the slowest legitimate
+      # request (placing an order waits on customer, catalog and possibly a token request).
+      connect-timeout: 2s
+      read-timeout: 10s
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          # One route per service, listing exactly the API prefixes it owns. No catch-all route:
+          # anything else (/docs, /v3/api-docs, other versions, typos) is answered 404 here and never
+          # reaches a service. The gateway makes no authorization decision; each service is an OAuth2
+          # resource server with deny-by-default rules.
+          routes:
+            - id: catalog
+              uri: ${CATALOG_SERVICE_URL:http://localhost:8081}
+              predicates:
+                - Path=/api/v1/products,/api/v1/products/**,/api/v1/stock/**,/api/v1/reservations/**
+            - id: customer
+              uri: ${CUSTOMER_SERVICE_URL:http://localhost:8082}
+              predicates:
+                - Path=/api/v1/customers/**
+            - id: order
+              uri: ${ORDER_SERVICE_URL:http://localhost:8083}
+              predicates:
+                - Path=/api/v1/orders,/api/v1/orders/**
+            - id: shipping
+              uri: ${SHIPPING_SERVICE_URL:http://localhost:8084}
+              predicates:
+                - Path=/api/v1/shipments,/api/v1/shipments/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -73,7 +73,7 @@ class AccessControlE2EIT {
         String sku = sku();
         catalogAs(admin).post("/api/v1/products",
                 "{\"sku\":\"" + sku + "\",\"name\":\"Owned\",\"unitPrice\":5.00,\"currency\":\"EUR\"}");
-        String aliceId = Shop.registered(new Api(platform.customer.baseUrl(), alice), "Alice Archer");
+        String aliceId = Shop.registered(new Api(platform.gateway.baseUrl(), alice), "Alice Archer");
         // order-service checked alice with customer-service using its own client-credentials token.
         Api.Response placed = ordersAs(alice).post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
                 "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":1}]}");
@@ -90,23 +90,23 @@ class AccessControlE2EIT {
 
     @Test
     void customerProfilesAreReadableByServicesNotByOtherCustomers() {
-        String aliceId = Shop.registered(new Api(platform.customer.baseUrl(), alice), "Alice Archer");
+        String aliceId = Shop.registered(new Api(platform.gateway.baseUrl(), alice), "Alice Archer");
 
-        assertThat(new Api(platform.customer.baseUrl(), orderService).get("/api/v1/customers/" + aliceId).status())
+        assertThat(new Api(platform.gateway.baseUrl(), orderService).get("/api/v1/customers/" + aliceId).status())
                 .isEqualTo(200);
-        assertThat(new Api(platform.customer.baseUrl(), bob).get("/api/v1/customers/" + aliceId).status()).isEqualTo(403);
+        assertThat(new Api(platform.gateway.baseUrl(), bob).get("/api/v1/customers/" + aliceId).status()).isEqualTo(403);
     }
 
     private static Api ordersAs(String token) {
-        return new Api(platform.order.baseUrl(), token);
+        return new Api(platform.gateway.baseUrl(), token);
     }
 
     private static Api catalogAs(String token) {
-        return new Api(platform.catalog.baseUrl(), token);
+        return new Api(platform.gateway.baseUrl(), token);
     }
 
     private static Api shippingAs(String token) {
-        return new Api(platform.shipping.baseUrl(), token);
+        return new Api(platform.gateway.baseUrl(), token);
     }
 
     private static String sku() {

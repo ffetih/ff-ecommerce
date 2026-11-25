@@ -2,9 +2,9 @@ package io.github.ffetih.ecommerce.order.adapter.in.web;
 
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
-import io.github.ffetih.ecommerce.order.support.StubServer;
-import io.github.ffetih.ecommerce.order.support.StubServer.Response;
 import io.github.ffetih.ecommerce.order.support.TestcontainersConfiguration;
+import io.github.ffetih.ecommerce.testsupport.StubServer;
+import io.github.ffetih.ecommerce.testsupport.StubServer.Response;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;

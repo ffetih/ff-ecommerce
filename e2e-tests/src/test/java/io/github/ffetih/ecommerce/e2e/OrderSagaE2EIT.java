@@ -30,10 +30,10 @@ class OrderSagaE2EIT {
         // Stocking the catalog and moving shipments along are back-office work.
         String admin = platform.tokens.user("admin");
         String alice = platform.tokens.user("alice");
-        catalog = new Api(platform.catalog.baseUrl(), admin);
-        customers = new Api(platform.customer.baseUrl(), alice);
-        orders = new Api(platform.order.baseUrl(), alice);
-        shipping = new Api(platform.shipping.baseUrl(), admin);
+        catalog = new Api(platform.gateway.baseUrl(), admin);
+        customers = new Api(platform.gateway.baseUrl(), alice);
+        orders = new Api(platform.gateway.baseUrl(), alice);
+        shipping = new Api(platform.gateway.baseUrl(), admin);
     }
 
     @Test
