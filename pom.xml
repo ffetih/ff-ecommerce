@@ -23,6 +23,7 @@
         <module>test-support</module>
         <module>events</module>
         <module>messaging</module>
+        <module>security</module>
         <module>catalog-service</module>
         <module>customer-service</module>
         <module>order-service</module>
