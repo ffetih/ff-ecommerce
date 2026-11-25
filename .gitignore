@@ -1,0 +1,21 @@
+# Build output
+target/
+*.log
+
+# Maven wrapper downloads
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local environment overrides
+.env
