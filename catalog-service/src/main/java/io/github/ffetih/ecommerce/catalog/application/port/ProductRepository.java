@@ -15,5 +15,9 @@ public interface ProductRepository {
 
     List<Product> findAll();
 
-    Product save(Product product);
+    /** Stores a new product; fails with {@code ConflictException} if the SKU exists, never overwrites. */
+    Product insert(Product product);
+
+    /** Stores changes to an existing product. */
+    Product update(Product product);
 }

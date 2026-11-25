@@ -98,6 +98,30 @@ class CatalogApiIT {
     }
 
     @Test
+    void concurrentCreationsOfOneSkuCreateExactlyOneProduct() throws Exception {
+        String sku = TestData.uniqueSku("RACE").value();
+        var statuses = new java.util.concurrent.ConcurrentLinkedQueue<Integer>();
+        var startGate = new java.util.concurrent.CountDownLatch(1);
+
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < 10; i++) {
+                int attempt = i;
+                executor.submit(() -> {
+                    startGate.await();
+                    statuses.add(call(HttpMethod.POST, "/api/v1/products", "{\"sku\":\"" + sku
+                            + "\",\"name\":\"Attempt " + attempt + "\",\"unitPrice\":10.00,\"currency\":\"EUR\"}").status());
+                    return null;
+                });
+            }
+            startGate.countDown();
+        }
+
+        assertThat(statuses).hasSize(10);
+        assertThat(statuses.stream().filter(s -> s == 201)).hasSize(1);
+        assertThat(statuses.stream().filter(s -> s == 409)).hasSize(9);
+    }
+
+    @Test
     void anyoneMayBrowseTheCatalog() {
         String sku = createProductWithStock(0);
 
