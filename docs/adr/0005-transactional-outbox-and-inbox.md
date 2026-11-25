@@ -37,6 +37,14 @@ the outbox row ids of one key are assigned in commit order.
 **Inbox (consumer side).** Delivery is at least once. A consumer records `(consumer, event_id)` in
 `inbox_messages` in the same transaction as its own change, and skips events it has already recorded.
 
+**Failed consumption.** A record whose processing throws is retried in place a few times with growing
+pauses (0.5 s, 1 s, 2 s), then published to `<topic>-dlt` so the partition can move on. Messages that
+cannot be parsed skip the retries. The dead-letter topic name is set explicitly rather than taken from
+the framework default, which changed between Spring Kafka major versions. Dead-letter topics must exist
+with at least as many partitions as their source; if publishing to one fails, the record is retried
+rather than skipped, so the partition stops until the topic is fixed. Values are read as strings through `ErrorHandlingDeserializer`, so even
+undecodable bytes reach the error handler instead of failing inside the consumer's poll loop.
+
 **Schema.** The DDL lives in `messaging/src/main/resources/messaging-schema.sql`; each service copies it
 into its own Flyway migration, keeping full ownership of its schema.
 

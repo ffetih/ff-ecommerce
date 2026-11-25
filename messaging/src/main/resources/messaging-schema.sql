@@ -24,3 +24,12 @@ CREATE INDEX IF NOT EXISTS outbox_messages_pending
 -- Retention cleanup deletes old published rows.
 CREATE INDEX IF NOT EXISTS outbox_messages_published_at
     ON outbox_messages (published_at) WHERE published_at IS NOT NULL;
+
+-- Events a consumer has already processed. Written in the same transaction as the consumer's own change,
+-- so a redelivered event is recognized and skipped, and a failed attempt leaves no trace.
+CREATE TABLE IF NOT EXISTS inbox_messages (
+    consumer         varchar(100)   NOT NULL,
+    event_id         uuid           NOT NULL,
+    processed_at     timestamptz    NOT NULL DEFAULT now(),
+    PRIMARY KEY (consumer, event_id)
+);
