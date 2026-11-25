@@ -21,6 +21,6 @@ class OrderServiceApplicationIT {
         var tables = jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'", String.class);
 
-        assertThat(tables).contains("orders", "order_lines", "outbox_messages", "flyway_schema_history");
+        assertThat(tables).contains("orders", "order_lines", "outbox_messages", "inbox_messages", "flyway_schema_history");
     }
 }

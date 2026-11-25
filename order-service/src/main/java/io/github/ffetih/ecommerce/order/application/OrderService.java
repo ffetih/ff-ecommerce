@@ -77,12 +77,20 @@ public class OrderService {
         }
     }
 
-    public Order get(UUID orderId) {
-        return transactions.inTransaction(() ->
-                orders.findById(orderId).orElseThrow(() -> new OrderNotFoundException(orderId)));
+    /**
+     * Someone else's order is reported exactly like a missing one: answering "forbidden" would
+     * confirm that the id exists, and order ids would become something to probe for.
+     */
+    public Order get(UUID orderId, Requester requester) {
+        return transactions.inTransaction(() -> orders.findById(orderId)
+                .filter(order -> requester.mayActFor(order.customerId()))
+                .orElseThrow(() -> new OrderNotFoundException(orderId)));
     }
 
-    public List<Order> forCustomer(UUID customerId) {
+    public List<Order> forCustomer(UUID customerId, Requester requester) {
+        if (!requester.mayActFor(customerId)) {
+            throw new NotAllowedException("Customers can only list their own orders");
+        }
         return transactions.inTransaction(() -> orders.findByCustomer(customerId));
     }
 

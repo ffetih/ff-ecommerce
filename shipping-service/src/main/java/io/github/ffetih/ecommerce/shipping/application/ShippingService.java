@@ -17,7 +17,8 @@ import java.util.function.Supplier;
 /** Shipping's part of the order saga (ADR-0007), plus the warehouse operations that drive it. */
 public class ShippingService {
 
-    static final String ORDER_EVENTS_CONSUMER = "shipping-service.order-lifecycle";
+    /** Inbox consumer name and Kafka consumer group of the listener for these events. */
+    public static final String ORDER_EVENTS_CONSUMER = "shipping-service.order-lifecycle";
 
     private static final System.Logger log = System.getLogger(ShippingService.class.getName());
 

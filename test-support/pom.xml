@@ -12,7 +12,7 @@
 
     <artifactId>test-support</artifactId>
     <name>Test Support</name>
-    <description>Shared Testcontainers definitions used by every service's integration tests</description>
+    <description>Shared Testcontainers definitions, a test token issuer and a stub HTTP server for integration tests</description>
 
     <dependencies>
         <dependency>
@@ -22,6 +22,11 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-kafka</artifactId>
+        </dependency>
+        <!-- Signs test JWTs (brings Nimbus JOSE + JWT, the library Spring Security itself uses). -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-oauth2-jose</artifactId>
         </dependency>
 
         <dependency>

@@ -30,6 +30,9 @@ public record Order(
 
     public static final int MAX_LINES = 50;
 
+    /** Same limit as customer-service and the {@code orders.shipping_address} column. */
+    public static final int MAX_ADDRESS_LENGTH = 500;
+
     public enum Status {
         PLACED(0), CONFIRMED(1), SHIPPED(2), DELIVERED(3), CANCELLED(-1);
 
@@ -53,6 +56,9 @@ public record Order(
         Objects.requireNonNull(updatedAt, "updatedAt is required");
         if (shippingAddress == null || shippingAddress.isBlank()) {
             throw new IllegalArgumentException("Shipping address is required");
+        }
+        if (shippingAddress.length() > MAX_ADDRESS_LENGTH) {
+            throw new IllegalArgumentException("Shipping address must be at most " + MAX_ADDRESS_LENGTH + " characters");
         }
         lines = List.copyOf(lines);
     }

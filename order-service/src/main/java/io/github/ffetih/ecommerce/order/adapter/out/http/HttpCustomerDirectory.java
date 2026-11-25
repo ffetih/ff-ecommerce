@@ -25,8 +25,8 @@ class HttpCustomerDirectory implements CustomerDirectory {
 
     private final RestClient rest;
 
-    HttpCustomerDirectory(ClientProperties properties) {
-        this.rest = RestClients.create(properties.customer());
+    HttpCustomerDirectory(ClientProperties properties, ServiceTokens serviceTokens) {
+        this.rest = RestClients.create(properties.customer(), serviceTokens.interceptor());
     }
 
     @Override

@@ -1,6 +1,5 @@
 package io.github.ffetih.ecommerce.e2e;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -27,18 +26,14 @@ class OrderSagaE2EIT {
 
     @BeforeAll
     static void startPlatform() throws Exception {
-        platform = Platform.start();
-        catalog = new Api(platform.catalog.baseUrl());
-        customers = new Api(platform.customer.baseUrl());
-        orders = new Api(platform.order.baseUrl());
-        shipping = new Api(platform.shipping.baseUrl());
-    }
-
-    @AfterAll
-    static void stopPlatform() {
-        if (platform != null) {
-            platform.close();
-        }
+        platform = Platform.shared();
+        // Stocking the catalog and moving shipments along are back-office work.
+        String admin = platform.tokens.user("admin");
+        String alice = platform.tokens.user("alice");
+        catalog = new Api(platform.gateway.baseUrl(), admin);
+        customers = new Api(platform.gateway.baseUrl(), alice);
+        orders = new Api(platform.gateway.baseUrl(), alice);
+        shipping = new Api(platform.gateway.baseUrl(), admin);
     }
 
     @Test
@@ -100,18 +95,17 @@ class OrderSagaE2EIT {
         return sku;
     }
 
+    /** Alice's customer profile; registered on first use (the platform is shared between test classes). */
     private static String customer() {
-        Api.Response created = customers.post("/api/v1/customers", "{\"email\":\"e2e-" + UUID.randomUUID()
-                + "@example.com\",\"fullName\":\"E2E Customer\",\"shippingAddress\":\"Bağdat Cd. 1, İstanbul\"}");
-        assertThat(created.status()).isEqualTo(201);
-        return created.text("id");
+        return Shop.registered(customers, "Alice Archer");
     }
 
     private static String placeOrder(String customer, String sku, int quantity) {
         Api.Response placed = orders.post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"customerId\":\"" + customer + "\",\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":" + quantity + "}]}");
+                "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":" + quantity + "}]}");
         assertThat(placed.status()).isEqualTo(201);
         assertThat(placed.text("status")).isEqualTo("PLACED");
+        assertThat(placed.text("customerId")).isEqualTo(customer);
         return placed.text("id");
     }
 

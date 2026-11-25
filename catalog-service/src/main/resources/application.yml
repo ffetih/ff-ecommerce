@@ -17,6 +17,7 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
+      # Fallback only: every listener names its own group (one group per subscribed topic).
       group-id: catalog-service
       auto-offset-reset: earliest
       # Deserialization errors reach the error handler (and the dead-letter topic) instead of failing in poll().
@@ -25,6 +26,13 @@ spring:
       properties:
         spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
         spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Signing keys are discovered from the issuer; tokens must name this service in "aud".
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/ecommerce}
+          audiences: catalog-service
   jpa:
     open-in-view: false
     hibernate:

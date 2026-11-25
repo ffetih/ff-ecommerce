@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.order.adapter.in.web;
 
 import io.github.ffetih.ecommerce.order.application.DownstreamUnavailableException;
 import io.github.ffetih.ecommerce.order.application.IdempotencyKeyReusedException;
+import io.github.ffetih.ecommerce.order.application.NotAllowedException;
 import io.github.ffetih.ecommerce.order.application.OrderNotFoundException;
 import io.github.ffetih.ecommerce.order.application.OrderRejectedException;
 import io.github.ffetih.ecommerce.order.domain.IllegalOrderTransitionException;
@@ -20,6 +21,11 @@ class ApiExceptionHandler {
     @ExceptionHandler(OrderNotFoundException.class)
     ProblemDetail notFound(OrderNotFoundException ex) {
         return problem(HttpStatus.NOT_FOUND, "Not found", ex.getMessage());
+    }
+
+    @ExceptionHandler(NotAllowedException.class)
+    ProblemDetail notAllowed(NotAllowedException ex) {
+        return problem(HttpStatus.FORBIDDEN, "Forbidden", ex.getMessage());
     }
 
     /** Well-formed request that the business rules refuse (unknown product, deactivated customer...). */

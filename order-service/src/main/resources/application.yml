@@ -17,6 +17,7 @@ spring:
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
+      # Fallback only: every listener names its own group (one group per subscribed topic).
       group-id: order-service
       auto-offset-reset: earliest
       key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
@@ -24,6 +25,26 @@ spring:
       properties:
         spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
         spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Signing keys are discovered from the issuer; tokens must name this service in "aud".
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/ecommerce}
+          audiences: order-service
+      client:
+        # order-service's own identity for calls to customer-service and catalog-service.
+        registration:
+          order-service:
+            provider: keycloak
+            client-id: order-service
+            client-secret: ${ORDER_SERVICE_CLIENT_SECRET:order-service-secret}
+            authorization-grant-type: client_credentials
+        provider:
+          keycloak:
+            # Only the token endpoint: no discovery request at startup, so the service starts even
+            # while the issuer is still coming up.
+            token-uri: ${spring.security.oauth2.resourceserver.jwt.issuer-uri}/protocol/openid-connect/token
   jpa:
     open-in-view: false
     hibernate:

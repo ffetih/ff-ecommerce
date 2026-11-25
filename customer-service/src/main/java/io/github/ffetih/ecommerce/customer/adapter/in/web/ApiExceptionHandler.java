@@ -1,5 +1,6 @@
 package io.github.ffetih.ecommerce.customer.adapter.in.web;
 
+import io.github.ffetih.ecommerce.customer.application.CustomerAlreadyRegisteredException;
 import io.github.ffetih.ecommerce.customer.application.CustomerNotFoundException;
 import io.github.ffetih.ecommerce.customer.application.EmailAlreadyRegisteredException;
 import io.github.ffetih.ecommerce.customer.domain.CustomerDeactivatedException;
@@ -18,12 +19,13 @@ class ApiExceptionHandler {
         return problem(HttpStatus.NOT_FOUND, "Not found", ex.getMessage());
     }
 
-    @ExceptionHandler({EmailAlreadyRegisteredException.class, CustomerDeactivatedException.class})
+    @ExceptionHandler({CustomerAlreadyRegisteredException.class, EmailAlreadyRegisteredException.class,
+            CustomerDeactivatedException.class})
     ProblemDetail conflict(RuntimeException ex) {
         return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
     }
 
-    /** Lost a race: the same email registered concurrently, or the customer was edited at the same time. */
+    /** Lost a race: the same person or email registered concurrently, or the customer was edited at the same time. */
     @ExceptionHandler({DataIntegrityViolationException.class, ObjectOptimisticLockingFailureException.class})
     ProblemDetail concurrentChange(RuntimeException ex) {
         return problem(HttpStatus.CONFLICT, "Concurrent change",

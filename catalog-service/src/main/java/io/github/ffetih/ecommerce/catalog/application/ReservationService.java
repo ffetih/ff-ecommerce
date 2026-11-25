@@ -34,8 +34,10 @@ import java.util.function.UnaryOperator;
  */
 public class ReservationService {
 
-    static final String ORDER_EVENTS_CONSUMER = "catalog-service.order-lifecycle";
-    static final String SHIPMENT_EVENTS_CONSUMER = "catalog-service.shipments";
+    /** Inbox consumer name and Kafka consumer group of the listener for these events. */
+    public static final String ORDER_EVENTS_CONSUMER = "catalog-service.order-lifecycle";
+    /** Inbox consumer name and Kafka consumer group of the listener for these events. */
+    public static final String SHIPMENT_EVENTS_CONSUMER = "catalog-service.shipments";
 
     private static final System.Logger log = System.getLogger(ReservationService.class.getName());
 

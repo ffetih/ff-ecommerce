@@ -13,15 +13,22 @@ import org.springframework.web.client.RestClient;
 
 import java.util.UUID;
 
+import static io.github.ffetih.ecommerce.catalog.support.TestcontainersConfiguration.tokens;
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** HTTP contract: status codes and RFC 9457 problem bodies, exercised over a real socket. */
+/**
+ * HTTP contract: status codes, RFC 9457 problem bodies and who may call what, exercised over a real
+ * socket with signed tokens.
+ */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 class CatalogApiIT {
 
     @Value("${local.server.port}")
     int port;
+
+    static final String ADMIN_ID = "ad000000-0000-4000-8000-000000000003";
+    static final String ALICE_ID = "a11ce000-0000-4000-8000-000000000001";
 
     record Response(int status, String contentType, String body) {
     }
@@ -90,8 +97,91 @@ class CatalogApiIT {
         return sku;
     }
 
+    @Test
+    void concurrentCreationsOfOneSkuCreateExactlyOneProduct() throws Exception {
+        String sku = TestData.uniqueSku("RACE").value();
+        var statuses = new java.util.concurrent.ConcurrentLinkedQueue<Integer>();
+        var startGate = new java.util.concurrent.CountDownLatch(1);
+
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            for (int i = 0; i < 10; i++) {
+                int attempt = i;
+                executor.submit(() -> {
+                    startGate.await();
+                    statuses.add(call(HttpMethod.POST, "/api/v1/products", "{\"sku\":\"" + sku
+                            + "\",\"name\":\"Attempt " + attempt + "\",\"unitPrice\":10.00,\"currency\":\"EUR\"}").status());
+                    return null;
+                });
+            }
+            startGate.countDown();
+        }
+
+        assertThat(statuses).hasSize(10);
+        assertThat(statuses.stream().filter(s -> s == 201)).hasSize(1);
+        assertThat(statuses.stream().filter(s -> s == 409)).hasSize(9);
+    }
+
+    @Test
+    void anyoneMayBrowseTheCatalog() {
+        String sku = createProductWithStock(0);
+
+        assertThat(callAs(null, HttpMethod.GET, "/api/v1/products/" + sku, null).status()).isEqualTo(200);
+        assertThat(callAs(null, HttpMethod.GET, "/api/v1/products?sku=" + sku, null).body()).contains(sku);
+    }
+
+    @Test
+    void onlyAdminsChangeTheCatalogAndTheStock() {
+        String sku = createProductWithStock(3);
+        String product = "{\"sku\":\"" + TestData.uniqueSku("SEC").value() + "\",\"name\":\"X\",\"unitPrice\":1.00,\"currency\":\"EUR\"}";
+        String price = "{\"unitPrice\":2.00,\"currency\":\"EUR\"}";
+        String receipt = "{\"referenceId\":\"" + UUID.randomUUID() + "\",\"quantity\":1}";
+        String reservation = "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":1}]}";
+
+        // Anonymous: 401. A customer, or order-service's machine token: authenticated, but not admin: 403.
+        for (String caller : new String[]{null, customer(), orderService()}) {
+            int expected = caller == null ? 401 : 403;
+            assertThat(callAs(caller, HttpMethod.POST, "/api/v1/products", product).status()).isEqualTo(expected);
+            assertThat(callAs(caller, HttpMethod.PUT, "/api/v1/products/" + sku + "/price", price).status()).isEqualTo(expected);
+            assertThat(callAs(caller, HttpMethod.GET, "/api/v1/stock/" + sku, null).status()).isEqualTo(expected);
+            assertThat(callAs(caller, HttpMethod.POST, "/api/v1/stock/" + sku + "/receipts", receipt).status()).isEqualTo(expected);
+            assertThat(callAs(caller, HttpMethod.PUT, "/api/v1/reservations/" + UUID.randomUUID(), reservation).status())
+                    .isEqualTo(expected);
+        }
+        assertThat(callAs(admin(), HttpMethod.GET, "/api/v1/stock/" + sku, null).body()).contains("\"onHand\":3");
+    }
+
+    @Test
+    void aTokenForAnotherServiceIsRejectedEvenOnPublicEndpoints() {
+        String sku = createProductWithStock(0);
+        String shippingToken = tokens().token(ADMIN_ID).audiences("shipping-service").roles("admin").sign();
+
+        // A token that is present but invalid is an error, not "anonymous".
+        assertThat(callAs(shippingToken, HttpMethod.GET, "/api/v1/products/" + sku, null).status()).isEqualTo(401);
+        assertThat(callAs(shippingToken, HttpMethod.GET, "/api/v1/stock/" + sku, null).status()).isEqualTo(401);
+    }
+
+    private static String admin() {
+        return tokens().token(ADMIN_ID).audiences("catalog-service").roles("admin").sign();
+    }
+
+    private static String customer() {
+        return tokens().token(ALICE_ID).audiences("catalog-service").roles("customer").sign();
+    }
+
+    private static String orderService() {
+        return tokens().serviceToken("order-service").audiences("catalog-service", "customer-service").sign();
+    }
+
+    /** Most tests are about the API contract, not access: they call as an admin. */
     private Response call(HttpMethod method, String path, String json) {
+        return callAs(admin(), method, path, json);
+    }
+
+    private Response callAs(String token, HttpMethod method, String path, String json) {
         RestClient.RequestBodySpec request = RestClient.create("http://localhost:" + port).method(method).uri(path);
+        if (token != null) {
+            request = request.header("Authorization", "Bearer " + token);
+        }
         if (json != null) {
             request = request.contentType(MediaType.APPLICATION_JSON).body(json);
         }

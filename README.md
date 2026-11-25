@@ -3,7 +3,8 @@
 ![CI](https://github.com/ffetih/ff-ecommerce/actions/workflows/ci.yml/badge.svg)
 
 A reference implementation of an order-to-delivery flow built as independent services:
-catalog and inventory, orders, shipping, payments and returns.
+catalog and inventory, customers, orders and shipping. Payments and returns follow on the
+[roadmap](docs/SPRINT_PLAN.md).
 
 The focus is on the hard parts of distributed systems rather than on feature count:
 consistent stock under concurrency, a saga with correct compensation, reliable event
@@ -23,7 +24,8 @@ and tests that prove what the sprint claims.
 | s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
-| s05 | Security: Keycloak, OAuth2 resource servers, ownership checks, service-to-service tokens, API gateway | in progress |
+| s05 | Security: Keycloak, OAuth2 resource servers with enforced deny-by-default, identity and ownership from the token, service-to-service tokens, routing-only gateway | done |
+| s06 | Saga hardening: cancel/dispatch race, delivery after dispatch, reservation expiry, outbox and dead-letter metrics | next |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -36,6 +38,13 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 | `customer-service` | 8082 | Customer accounts with unique, normalized emails; shipping addresses; deactivation |
 | `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle |
 | `shipping-service` | 8084 | One shipment per confirmed order; dispatch and delivery; cancellation before dispatch |
+| `gateway` | 8080 | Single entry point: routes each API path to its service; makes no authorization decision |
+
+Clients call the gateway (`http://localhost:8080/api/v1/...`) with a Keycloak access token. The
+gateway forwards the request and its `Authorization` header unchanged to the service that owns the
+path, and forwards nothing else (no documentation proxying, no catch-all route). Every service
+validates the token itself and decides access with deny-by-default rules, so a request that gets
+around the gateway meets the same checks.
 
 ### catalog-service API
 
@@ -53,22 +62,71 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 Every stock change is published as a `catalog.stock-changed` event on topic `catalog.stock`
 (key: SKU), recorded in the same transaction as the change.
 
-Errors are RFC 9457 problem responses (`application/problem+json`). The API is unauthenticated
-until the security sprint (s05).
+Errors are RFC 9457 problem responses (`application/problem+json`).
+
+Access: reading products is public; every other endpoint requires the `admin` role. Calls carry a
+Keycloak access token (`Authorization: Bearer …`) whose `aud` includes `catalog-service`; see
+[infra/keycloak](infra/keycloak) and `scripts/dev-auth.sh`.
+
+### customer-service API
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/customers/me` | customer | Create the caller's profile (id and email come from the token) |
+| `GET` | `/api/v1/customers/me` | customer | The caller's profile |
+| `PUT` | `/api/v1/customers/me/shipping-address` | customer | Change the caller's shipping address |
+| `GET` | `/api/v1/customers/{id}` | admin, service | Any profile (order-service checks customers here) |
+| `POST` | `/api/v1/customers/{id}/deactivate` | admin | Deactivate a customer |
+
+A customer's id is their Keycloak user id (`sub`), so there is no mapping table between logins and
+customers.
 
 ### order-service API
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/v1/orders` | Place an order; requires an `Idempotency-Key` header (UUID per order attempt) |
-| `GET` | `/api/v1/orders/{orderId}` | One order with its lines and prices |
-| `GET` | `/api/v1/orders?customerId=…` | A customer's orders, newest first |
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/orders` | customer | Place an order for the caller; requires an `Idempotency-Key` header (UUID per order attempt) |
+| `GET` | `/api/v1/orders/{orderId}` | owner, admin | One order with its lines and prices |
+| `GET` | `/api/v1/orders` | customer | The caller's orders, newest first (admin: `?customerId=…` for anyone's) |
+| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel before dispatch |
+
+The customer of an order is always the caller. Someone else's order answers `404`, like an unknown id,
+so order ids cannot be probed. order-service calls customer-service and catalog-service with its own
+client-credentials token, not the caller's.
 
 Placing an order reads the customer and current prices synchronously (2 s connect / 3 s read timeouts),
 then stores the order and an `order.order-placed` event in one transaction. Repeating a request with the
 same key returns the same order (`200`, `Idempotent-Replayed: true`); the same key with a different body
 is a `409`. Unknown or retired products and inactive customers give `422`; an unavailable dependency gives
 `503` with `Retry-After`, and the request can be retried safely with the same key.
+
+### shipping-service API
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/shipments/{shipmentId}` | admin | One shipment with its lines and tracking number |
+| `GET` | `/api/v1/shipments?orderId=…` | admin | The shipment of an order |
+| `POST` | `/api/v1/shipments/{shipmentId}/dispatch` | admin | Hand over to the carrier: assigns the tracking number, commits the stock |
+| `POST` | `/api/v1/shipments/{shipmentId}/deliver` | admin | Mark as delivered |
+
+Shipments are created from `order.order-confirmed` events, not through the API. Customers cannot see
+their shipment yet; exposing the tracking number on the order is on the roadmap.
+
+## Security
+
+Keycloak issues the tokens; each service checks them itself ([ADR-0008](docs/adr/0008-security.md)):
+
+- **Token validation:** signature (keys discovered from the issuer), issuer, expiry, and an audience
+  naming the service. A service without issuer or audience refuses to start.
+- **Deny by default:** endpoints are listed with their allowed roles; everything else is denied. A
+  service whose filter chains bypass the shared `security` module refuses to start.
+- **Identity from the token:** the customer id is the token's `sub`; no request names a customer.
+  Someone else's order answers `404`.
+- **Service-to-service:** order-service calls customer and catalog with its own client-credentials
+  token, cached, with timeouts, renewed once if rejected.
+- **Gateway:** routes only; a request that bypasses it meets the same checks.
+
+Known limits (development realm, unauthenticated Kafka, audience for people) are listed in the ADR.
 
 ## Order saga
 

@@ -91,7 +91,7 @@ class OrderSagaServiceTest {
     @Test
     void aReservationArrivingAfterTheCustomerCancelledIsCompensated() {
         UUID orderId = placedOrder();
-        saga.cancelByCustomer(orderId, "changed my mind");
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
 
         saga.stockReserved(UUID.randomUUID(), orderId);
 
@@ -106,7 +106,7 @@ class OrderSagaServiceTest {
 
         saga.shipmentDispatched(UUID.randomUUID(), orderId);
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.SHIPPED);
-        assertThatThrownBy(() -> saga.cancelByCustomer(orderId, "too late"))
+        assertThatThrownBy(() -> saga.cancelByCustomer(orderId, "too late", Requester.backOffice()))
                 .isInstanceOf(IllegalOrderTransitionException.class);
 
         saga.shipmentDelivered(UUID.randomUUID(), orderId);
@@ -117,9 +117,23 @@ class OrderSagaServiceTest {
     void cancellingTwiceAnnouncesItOnce() {
         UUID orderId = placedOrder();
 
-        saga.cancelByCustomer(orderId, "changed my mind");
-        saga.cancelByCustomer(orderId, "changed my mind");
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
 
         assertThat(published).hasSize(1);
+    }
+
+    @Test
+    void onlyTheOrdersCustomerOrTheBackOfficeMayCancel() {
+        UUID orderId = placedOrder();
+        UUID owner = orders.findById(orderId).orElseThrow().customerId();
+
+        assertThatThrownBy(() -> saga.cancelByCustomer(orderId, "not mine", Requester.customer(UUID.randomUUID())))
+                .isInstanceOf(OrderNotFoundException.class);
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.PLACED);
+        assertThat(published).isEmpty();
+
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.customer(owner));
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
     }
 }

@@ -54,6 +54,16 @@ class OrderTest {
     }
 
     @Test
+    void rejectsAShippingAddressLongerThanTheStoredColumn() {
+        String fiveHundred = "x".repeat(Order.MAX_ADDRESS_LENGTH);
+
+        assertThat(Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred, NOW).shippingAddress())
+                .hasSize(Order.MAX_ADDRESS_LENGTH);
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred + "x", NOW));
+    }
+
+    @Test
     void followsTheHappyPath() {
         Order delivered = placed().confirm(NOW).ship(NOW).deliver(NOW);
 

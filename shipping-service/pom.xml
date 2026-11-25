@@ -50,6 +50,11 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>io.github.ffetih.ecommerce</groupId>
+            <artifactId>security</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.postgresql</groupId>
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>

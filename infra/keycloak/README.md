@@ -34,6 +34,10 @@ grant is deprecated by the OAuth 2.0 Security Best Current Practice; a real real
 Each service accepts a token only if its own name is in the `aud` claim. An `order-service` token
 therefore works against catalog and customer, and is rejected by shipping.
 
+For people, audience is not what separates the services: tokens from `ecommerce-cli` and
+`ecommerce-dev` carry all four audiences. Roles and ownership rules do that separation (a customer
+reaches shipping, and gets 403). Audience is a real boundary for machine tokens only.
+
 ## Roles
 
 Realm roles appear in access tokens under `realm_access.roles`:
@@ -46,3 +50,10 @@ Realm roles appear in access tokens under `realm_access.roles`:
 
 http://localhost:8180, user `kcadmin`, password `kcadmin` (master realm). Not to be confused with
 the `admin` user of the `ecommerce` realm.
+
+## Not for deployment
+
+This realm exists for local development and tests. Before it goes anywhere else: remove the
+`ecommerce-dev` client, replace the `order-service` secret (and pass it as
+`ORDER_SERVICE_CLIENT_SECRET`), remove the example users, and use the authorization code flow with
+PKCE for browser clients. See [ADR-0008](../../docs/adr/0008-security.md).

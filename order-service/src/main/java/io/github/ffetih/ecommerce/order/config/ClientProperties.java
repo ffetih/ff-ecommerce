@@ -6,9 +6,19 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.net.URI;
 import java.time.Duration;
 
-/** Where the services this one calls live, and how long we wait for them ({@code ecommerce.clients.*}). */
+/**
+ * Where the services this one calls live, and how long we wait for them ({@code ecommerce.clients.*}).
+ *
+ * @param tokenConnectTimeout how long to wait for a connection to the token issuer
+ * @param tokenReadTimeout    how long to wait for a service token; the token is reused, so this is
+ *                            paid rarely, but a hanging issuer must not hang order requests
+ */
 @ConfigurationProperties("ecommerce.clients")
-public record ClientProperties(Endpoint customer, Endpoint catalog) {
+public record ClientProperties(
+        Endpoint customer,
+        Endpoint catalog,
+        @DefaultValue("2s") Duration tokenConnectTimeout,
+        @DefaultValue("3s") Duration tokenReadTimeout) {
 
     /**
      * @param connectTimeout how long to wait for a TCP connection

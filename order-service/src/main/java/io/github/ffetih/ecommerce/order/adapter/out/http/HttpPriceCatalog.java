@@ -28,8 +28,8 @@ class HttpPriceCatalog implements PriceCatalog {
 
     private final RestClient rest;
 
-    HttpPriceCatalog(ClientProperties properties) {
-        this.rest = RestClients.create(properties.catalog());
+    HttpPriceCatalog(ClientProperties properties, ServiceTokens serviceTokens) {
+        this.rest = RestClients.create(properties.catalog(), serviceTokens.interceptor());
     }
 
     @Override

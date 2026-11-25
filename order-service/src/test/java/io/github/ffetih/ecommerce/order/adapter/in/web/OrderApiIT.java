@@ -2,9 +2,9 @@ package io.github.ffetih.ecommerce.order.adapter.in.web;
 
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
-import io.github.ffetih.ecommerce.order.support.StubServer;
-import io.github.ffetih.ecommerce.order.support.StubServer.Response;
 import io.github.ffetih.ecommerce.order.support.TestcontainersConfiguration;
+import io.github.ffetih.ecommerce.testsupport.StubServer;
+import io.github.ffetih.ecommerce.testsupport.StubServer.Response;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.serialization.StringDeserializer;
@@ -40,17 +40,20 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+import static io.github.ffetih.ecommerce.order.support.TestcontainersConfiguration.tokens;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * The order API over a real socket, with PostgreSQL and Kafka in containers and customer-service and
- * catalog-service replaced by stub servers we can make slow, broken or unaware of a customer.
+ * catalog-service replaced by stub servers we can make slow, broken or unaware of a customer. Callers
+ * send signed tokens; the customer is always the token's subject.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 class OrderApiIT {
 
     static final StubServer CUSTOMER_SERVICE = StubServer.start();
+    static final Duration TOKEN_READ_TIMEOUT = Duration.ofSeconds(1);
     static final StubServer CATALOG_SERVICE = StubServer.start();
 
     @DynamicPropertySource
@@ -58,6 +61,7 @@ class OrderApiIT {
         registry.add("ecommerce.clients.customer.base-url", CUSTOMER_SERVICE::baseUrl);
         registry.add("ecommerce.clients.catalog.base-url", CATALOG_SERVICE::baseUrl);
         registry.add("ecommerce.clients.catalog.read-timeout", () -> "1s");
+        registry.add("ecommerce.clients.token-read-timeout", () -> TOKEN_READ_TIMEOUT.toMillis() + "ms");
     }
 
     @Value("${local.server.port}")
@@ -89,10 +93,8 @@ class OrderApiIT {
         products.put("KB-01", new Product("KB-01", "89.90", true));
         products.put("MOUSE-01", new Product("MOUSE-01", "24.50", true));
         products.put("OLD-01", new Product("OLD-01", "5.00", false));
-        CUSTOMER_SERVICE.answer(request -> {
-            UUID id = UUID.fromString(request.path().substring(request.path().lastIndexOf('/') + 1));
-            return Optional.ofNullable(customers.get(id)).map(Response::json).orElse(Response.status(404));
-        });
+        tokens().delayTokenResponses(Duration.ZERO);
+        CUSTOMER_SERVICE.answer(this::customerFor);
         CATALOG_SERVICE.answer(this::productsFor);
     }
 
@@ -195,10 +197,132 @@ class OrderApiIT {
     void requiresAnIdempotencyKey() {
         UUID customer = activeCustomer();
 
-        ApiResponse response = call(HttpMethod.POST, "/api/v1/orders", Map.of(),
-                "{\"customerId\":\"" + customer + "\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
+        ApiResponse response = call(customerToken(customer), HttpMethod.POST, "/api/v1/orders", Map.of(),
+                "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
 
         assertThat(response.status()).isEqualTo(400);
+    }
+
+    // --- who may do what -----------------------------------------------------------------------
+
+    @Test
+    void theBackOfficeMustNameTheCustomerWhoseOrdersItLists() {
+        assertThat(call(adminToken(), HttpMethod.GET, "/api/v1/orders", Map.of(), null).status()).isEqualTo(400);
+    }
+
+    @Test
+    void rejectsAShippingAddressLongerThanFiveHundredCharacters() {
+        UUID alice = activeCustomer();
+
+        ApiResponse response = call(customerToken(alice), HttpMethod.POST, "/api/v1/orders",
+                Map.of("Idempotency-Key", UUID.randomUUID().toString()),
+                "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}],\"shippingAddress\":\"" + "x".repeat(501) + "\"}");
+
+        assertThat(response.status()).isEqualTo(400);
+        assertThat(ordersOf(alice)).isZero();
+    }
+
+    @Test
+    void theOrderBelongsToTheCallerWhateverTheBodySays() {
+        UUID alice = activeCustomer();
+        UUID bob = activeCustomer();
+
+        // An old client, or an attacker, still sends a customerId: it is not part of the API.
+        ApiResponse response = call(customerToken(alice), HttpMethod.POST, "/api/v1/orders",
+                Map.of("Idempotency-Key", UUID.randomUUID().toString()),
+                "{\"customerId\":\"" + bob + "\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
+
+        assertThat(response.status()).isEqualTo(201);
+        assertThat(json.readTree(response.body()).get("customerId").asString()).isEqualTo(alice.toString());
+        assertThat(ordersOf(bob)).isZero();
+    }
+
+    @Test
+    void customersSeeAndCancelOnlyTheirOwnOrders() {
+        UUID alice = activeCustomer();
+        UUID bob = activeCustomer();
+        String order = idOf(placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]"));
+        String cancel = "{\"reason\":\"not mine anyway\"}";
+
+        // For bob, alice's order does not exist: 404, exactly like an unknown id.
+        assertThat(call(customerToken(bob), HttpMethod.GET, "/api/v1/orders/" + order, Map.of(), null).status()).isEqualTo(404);
+        assertThat(call(customerToken(bob), HttpMethod.POST, "/api/v1/orders/" + order + "/cancel", Map.of(), cancel).status())
+                .isEqualTo(404);
+        assertThat(call(customerToken(bob), HttpMethod.GET, "/api/v1/orders", Map.of(), null).body()).doesNotContain(order);
+        assertThat(call(customerToken(bob), HttpMethod.GET, "/api/v1/orders?customerId=" + alice, Map.of(), null).status())
+                .isEqualTo(403);
+
+        ApiResponse own = call(customerToken(alice), HttpMethod.GET, "/api/v1/orders/" + order, Map.of(), null);
+        assertThat(own.status()).isEqualTo(200);
+        assertThat(json.readTree(own.body()).get("status").asString()).isEqualTo("PLACED");
+        assertThat(call(customerToken(alice), HttpMethod.GET, "/api/v1/orders", Map.of(), null).body()).contains(order);
+
+        // The back office sees every order.
+        assertThat(call(adminToken(), HttpMethod.GET, "/api/v1/orders/" + order, Map.of(), null).status()).isEqualTo(200);
+        assertThat(call(adminToken(), HttpMethod.GET, "/api/v1/orders?customerId=" + alice, Map.of(), null).body())
+                .contains(order);
+    }
+
+    @Test
+    void onlyCustomersPlaceOrders() {
+        String body = "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}";
+        Map<String, String> key = Map.of("Idempotency-Key", UUID.randomUUID().toString());
+
+        assertThat(call(null, HttpMethod.POST, "/api/v1/orders", key, body).status()).isEqualTo(401);
+        assertThat(call(adminToken(), HttpMethod.POST, "/api/v1/orders", key, body).status()).isEqualTo(403);
+    }
+
+    @Test
+    void aServiceTokenThatIsNoLongerAcceptedIsReplacedOnceAndTheOrderGoesThrough() {
+        UUID alice = activeCustomer();
+        placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+        String kept = lastServiceToken();
+        int issued = tokens().issuedTo("order-service").size();
+        // customer-service stops accepting the kept token, as after a key rotation at the issuer.
+        CUSTOMER_SERVICE.answer(request -> ("Bearer " + kept).equals(request.authorization())
+                ? Response.status(401) : customerFor(request));
+
+        ApiResponse response = placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+
+        assertThat(response.status()).isEqualTo(201);
+        assertThat(tokens().issuedTo("order-service")).hasSize(issued + 1);
+        assertThat(last(CUSTOMER_SERVICE).authorization()).isEqualTo("Bearer " + lastServiceToken());
+    }
+
+    @Test
+    void aHangingTokenIssuerFailsTheOrderFastAsServiceUnavailable() {
+        UUID alice = activeCustomer();
+        placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+        String kept = lastServiceToken();
+        CUSTOMER_SERVICE.answer(request -> ("Bearer " + kept).equals(request.authorization())
+                ? Response.status(401) : customerFor(request));
+        tokens().delayTokenResponses(Duration.ofSeconds(5));
+
+        Instant start = Instant.now();
+        ApiResponse response = placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+
+        assertThat(response.status()).isEqualTo(503);
+        assertThat(Duration.between(start, Instant.now())).isLessThan(TOKEN_READ_TIMEOUT.plusMillis(1_500));
+        assertThat(ordersOf(alice)).isEqualTo(1);
+    }
+
+    @Test
+    void downstreamCallsCarryOrderServicesOwnTokenNotTheCallers() {
+        UUID alice = activeCustomer();
+        String aliceToken = customerToken(alice);
+        placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+        int tokensIssued = tokens().issuedTo("order-service").size();
+
+        call(aliceToken, HttpMethod.POST, "/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
+                "{\"lines\":[{\"sku\":\"MOUSE-01\",\"quantity\":1}]}");
+
+        String toCustomerService = last(CUSTOMER_SERVICE).authorization();
+        String toCatalogService = last(CATALOG_SERVICE).authorization();
+        assertThat(toCustomerService).startsWith("Bearer ").isNotEqualTo("Bearer " + aliceToken);
+        assertThat(tokens().issuedTo("order-service")).contains(toCustomerService.substring("Bearer ".length()));
+        assertThat(toCatalogService).isEqualTo(toCustomerService);
+        // The token is kept until shortly before it expires, not fetched again for every order.
+        assertThat(tokens().issuedTo("order-service")).hasSize(tokensIssued);
     }
 
     // --- helpers -----------------------------------------------------------------------------
@@ -208,6 +332,16 @@ class OrderApiIT {
         customers.put(id, "{\"id\":\"" + id + "\",\"email\":\"x@example.com\",\"fullName\":\"X\","
                 + "\"shippingAddress\":\"Bağdat Cd. 1, İstanbul\",\"active\":true}");
         return id;
+    }
+
+    private Response customerFor(StubServer.Request request) {
+        UUID id = UUID.fromString(request.path().substring(request.path().lastIndexOf('/') + 1));
+        return Optional.ofNullable(customers.get(id)).map(Response::json).orElse(Response.status(404));
+    }
+
+    private static String lastServiceToken() {
+        List<String> issued = tokens().issuedTo("order-service");
+        return issued.get(issued.size() - 1);
     }
 
     private Response productsFor(StubServer.Request request) {
@@ -225,17 +359,40 @@ class OrderApiIT {
     }
 
     private ApiResponse placeOrder(UUID customer, UUID key, String linesJson) {
-        return call(HttpMethod.POST, "/api/v1/orders", Map.of("Idempotency-Key", key.toString()),
-                "{\"customerId\":\"" + customer + "\",\"lines\":" + linesJson + "}");
+        return call(customerToken(customer), HttpMethod.POST, "/api/v1/orders", Map.of("Idempotency-Key", key.toString()),
+                "{\"lines\":" + linesJson + "}");
+    }
+
+    private static String customerToken(UUID customer) {
+        return tokens().token(customer.toString()).audiences("order-service").roles("customer").sign();
+    }
+
+    private static String adminToken() {
+        return tokens().token("ad000000-0000-4000-8000-000000000003").audiences("order-service").roles("admin").sign();
+    }
+
+    private String idOf(ApiResponse response) {
+        assertThat(response.status()).isEqualTo(201);
+        return json.readTree(response.body()).get("id").asString();
+    }
+
+    private static StubServer.Request last(StubServer stub) {
+        List<StubServer.Request> received = stub.received();
+        return received.get(received.size() - 1);
     }
 
     private int ordersOf(UUID customer) {
         return jdbc.queryForObject("SELECT count(*) FROM orders WHERE customer_id = ?", Integer.class, customer);
     }
 
-    private ApiResponse call(HttpMethod method, String path, Map<String, String> headers, String jsonBody) {
+    private ApiResponse call(String token, HttpMethod method, String path, Map<String, String> headers, String jsonBody) {
         RestClient.RequestBodySpec request = RestClient.create("http://localhost:" + port).method(method).uri(path)
-                .headers(httpHeaders -> headers.forEach(httpHeaders::add));
+                .headers(httpHeaders -> {
+                    headers.forEach(httpHeaders::add);
+                    if (token != null) {
+                        httpHeaders.setBearerAuth(token);
+                    }
+                });
         if (jsonBody != null) {
             request.contentType(MediaType.APPLICATION_JSON).body(jsonBody);
         }

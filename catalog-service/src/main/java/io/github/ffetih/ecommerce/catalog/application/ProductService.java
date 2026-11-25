@@ -23,14 +23,18 @@ public class ProductService {
         this.transactions = transactions;
     }
 
-    /** Creates the product together with an empty stock row, so every product can be stocked and reserved. */
+    /**
+     * Creates the product together with an empty stock row, so every product can be stocked and
+     * reserved. Two concurrent creations of one SKU both pass the check; the insert (never an upsert)
+     * then meets the primary key, and the second gets the same 409.
+     */
     public Product create(Sku sku, String name, Money unitPrice) {
         Product product = Product.create(sku, name, unitPrice);
         return transactions.inTransaction(() -> {
             if (products.findBySku(sku).isPresent()) {
                 throw ConflictException.productExists(sku);
             }
-            Product saved = products.save(product);
+            Product saved = products.insert(product);
             stock.save(StockItem.empty(sku));
             return saved;
         });
@@ -39,7 +43,7 @@ public class ProductService {
     public Product changePrice(Sku sku, Money newPrice) {
         return transactions.inTransaction(() -> {
             Product product = products.findBySku(sku).orElseThrow(() -> NotFoundException.product(sku));
-            return products.save(product.changePrice(newPrice));
+            return products.update(product.changePrice(newPrice));
         });
     }
 
