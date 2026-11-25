@@ -49,5 +49,11 @@
             <artifactId>kafka-clients</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Logging backend for this module's own tests; services bring theirs via Spring Boot. -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
