@@ -3,7 +3,8 @@
 ![CI](https://github.com/ffetih/ff-ecommerce/actions/workflows/ci.yml/badge.svg)
 
 A reference implementation of an order-to-delivery flow built as independent services:
-catalog and inventory, orders, shipping, payments and returns.
+catalog and inventory, customers, orders and shipping. Payments and returns follow on the
+[roadmap](docs/SPRINT_PLAN.md).
 
 The focus is on the hard parts of distributed systems rather than on feature count:
 consistent stock under concurrency, a saga with correct compensation, reliable event

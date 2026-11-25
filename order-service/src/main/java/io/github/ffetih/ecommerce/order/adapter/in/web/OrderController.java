@@ -72,11 +72,15 @@ class OrderController {
         return OrderResponse.from(orders.get(orderId, Requesters.of(caller)));
     }
 
-    /** The caller's orders; the back office may ask for any customer's with {@code ?customerId=}. */
+    /** The caller's orders; the back office names the customer with {@code ?customerId=}. */
     @GetMapping
     List<OrderResponse> list(JwtAuthenticationToken caller, @RequestParam(required = false) UUID customerId) {
-        UUID whose = customerId != null ? customerId : Requesters.customerId(caller);
-        return orders.forCustomer(whose, Requesters.of(caller)).stream().map(OrderResponse::from).toList();
+        Requester requester = Requesters.of(caller);
+        if (customerId == null && requester.anyCustomer()) {
+            throw new IllegalArgumentException("The back office has no orders of its own: name a customer with ?customerId=");
+        }
+        UUID whose = customerId != null ? customerId : requester.customerId();
+        return orders.forCustomer(whose, requester).stream().map(OrderResponse::from).toList();
     }
 
     /** Possible until the parcel is dispatched; afterwards {@code 409}. Repeating it changes nothing. */
@@ -91,7 +95,7 @@ class OrderController {
 
     record PlaceOrderRequest(
             @NotEmpty @Size(max = Order.MAX_LINES) List<@Valid LineRequest> lines,
-            String shippingAddress) {
+            @Size(max = Order.MAX_ADDRESS_LENGTH) String shippingAddress) {
     }
 
     record LineRequest(@NotBlank String sku, @Positive int quantity) {

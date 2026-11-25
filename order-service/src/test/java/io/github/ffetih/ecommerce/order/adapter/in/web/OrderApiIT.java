@@ -53,6 +53,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class OrderApiIT {
 
     static final StubServer CUSTOMER_SERVICE = StubServer.start();
+    static final Duration TOKEN_READ_TIMEOUT = Duration.ofSeconds(1);
     static final StubServer CATALOG_SERVICE = StubServer.start();
 
     @DynamicPropertySource
@@ -60,6 +61,7 @@ class OrderApiIT {
         registry.add("ecommerce.clients.customer.base-url", CUSTOMER_SERVICE::baseUrl);
         registry.add("ecommerce.clients.catalog.base-url", CATALOG_SERVICE::baseUrl);
         registry.add("ecommerce.clients.catalog.read-timeout", () -> "1s");
+        registry.add("ecommerce.clients.token-read-timeout", () -> TOKEN_READ_TIMEOUT.toMillis() + "ms");
     }
 
     @Value("${local.server.port}")
@@ -91,10 +93,8 @@ class OrderApiIT {
         products.put("KB-01", new Product("KB-01", "89.90", true));
         products.put("MOUSE-01", new Product("MOUSE-01", "24.50", true));
         products.put("OLD-01", new Product("OLD-01", "5.00", false));
-        CUSTOMER_SERVICE.answer(request -> {
-            UUID id = UUID.fromString(request.path().substring(request.path().lastIndexOf('/') + 1));
-            return Optional.ofNullable(customers.get(id)).map(Response::json).orElse(Response.status(404));
-        });
+        tokens().delayTokenResponses(Duration.ZERO);
+        CUSTOMER_SERVICE.answer(this::customerFor);
         CATALOG_SERVICE.answer(this::productsFor);
     }
 
@@ -206,6 +206,23 @@ class OrderApiIT {
     // --- who may do what -----------------------------------------------------------------------
 
     @Test
+    void theBackOfficeMustNameTheCustomerWhoseOrdersItLists() {
+        assertThat(call(adminToken(), HttpMethod.GET, "/api/v1/orders", Map.of(), null).status()).isEqualTo(400);
+    }
+
+    @Test
+    void rejectsAShippingAddressLongerThanFiveHundredCharacters() {
+        UUID alice = activeCustomer();
+
+        ApiResponse response = call(customerToken(alice), HttpMethod.POST, "/api/v1/orders",
+                Map.of("Idempotency-Key", UUID.randomUUID().toString()),
+                "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}],\"shippingAddress\":\"" + "x".repeat(501) + "\"}");
+
+        assertThat(response.status()).isEqualTo(400);
+        assertThat(ordersOf(alice)).isZero();
+    }
+
+    @Test
     void theOrderBelongsToTheCallerWhateverTheBodySays() {
         UUID alice = activeCustomer();
         UUID bob = activeCustomer();
@@ -256,6 +273,40 @@ class OrderApiIT {
     }
 
     @Test
+    void aServiceTokenThatIsNoLongerAcceptedIsReplacedOnceAndTheOrderGoesThrough() {
+        UUID alice = activeCustomer();
+        placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+        String kept = lastServiceToken();
+        int issued = tokens().issuedTo("order-service").size();
+        // customer-service stops accepting the kept token, as after a key rotation at the issuer.
+        CUSTOMER_SERVICE.answer(request -> ("Bearer " + kept).equals(request.authorization())
+                ? Response.status(401) : customerFor(request));
+
+        ApiResponse response = placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+
+        assertThat(response.status()).isEqualTo(201);
+        assertThat(tokens().issuedTo("order-service")).hasSize(issued + 1);
+        assertThat(last(CUSTOMER_SERVICE).authorization()).isEqualTo("Bearer " + lastServiceToken());
+    }
+
+    @Test
+    void aHangingTokenIssuerFailsTheOrderFastAsServiceUnavailable() {
+        UUID alice = activeCustomer();
+        placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+        String kept = lastServiceToken();
+        CUSTOMER_SERVICE.answer(request -> ("Bearer " + kept).equals(request.authorization())
+                ? Response.status(401) : customerFor(request));
+        tokens().delayTokenResponses(Duration.ofSeconds(5));
+
+        Instant start = Instant.now();
+        ApiResponse response = placeOrder(alice, UUID.randomUUID(), "[{\"sku\":\"KB-01\",\"quantity\":1}]");
+
+        assertThat(response.status()).isEqualTo(503);
+        assertThat(Duration.between(start, Instant.now())).isLessThan(TOKEN_READ_TIMEOUT.plusMillis(1_500));
+        assertThat(ordersOf(alice)).isEqualTo(1);
+    }
+
+    @Test
     void downstreamCallsCarryOrderServicesOwnTokenNotTheCallers() {
         UUID alice = activeCustomer();
         String aliceToken = customerToken(alice);
@@ -281,6 +332,16 @@ class OrderApiIT {
         customers.put(id, "{\"id\":\"" + id + "\",\"email\":\"x@example.com\",\"fullName\":\"X\","
                 + "\"shippingAddress\":\"Bağdat Cd. 1, İstanbul\",\"active\":true}");
         return id;
+    }
+
+    private Response customerFor(StubServer.Request request) {
+        UUID id = UUID.fromString(request.path().substring(request.path().lastIndexOf('/') + 1));
+        return Optional.ofNullable(customers.get(id)).map(Response::json).orElse(Response.status(404));
+    }
+
+    private static String lastServiceToken() {
+        List<String> issued = tokens().issuedTo("order-service");
+        return issued.get(issued.size() - 1);
     }
 
     private Response productsFor(StubServer.Request request) {

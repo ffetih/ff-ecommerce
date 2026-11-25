@@ -27,4 +27,10 @@ class RequesterTest {
     void aCustomerNeedsAnId() {
         assertThatThrownBy(() -> Requester.customer(null)).isInstanceOf(NullPointerException.class);
     }
+
+    @Test
+    void isEitherACustomerWithAnIdOrTheBackOffice() {
+        assertThatThrownBy(() -> new Requester(null, false)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Requester(alice, true)).isInstanceOf(IllegalArgumentException.class);
+    }
 }

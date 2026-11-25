@@ -55,6 +55,7 @@ public final class TestTokenIssuer implements AutoCloseable {
     private volatile RSAKey unknownKey;
     private final Map<String, Client> clients = new ConcurrentHashMap<>();
     private final Map<String, List<String>> issued = new ConcurrentHashMap<>();
+    private volatile Duration tokenDelay = Duration.ZERO;
 
     private TestTokenIssuer(HttpServer server, RSAKey signingKey) {
         this.server = server;
@@ -98,6 +99,11 @@ public final class TestTokenIssuer implements AutoCloseable {
     public TestTokenIssuer registerClient(String clientId, String secret, String... audiences) {
         clients.put(clientId, new Client(secret, List.of(audiences)));
         return this;
+    }
+
+    /** Makes the token endpoint answer this much later: an issuer that is overloaded or hanging. */
+    public void delayTokenResponses(Duration delay) {
+        this.tokenDelay = delay;
     }
 
     /** Every token the token endpoint has handed out to this client, oldest first. */
@@ -227,6 +233,15 @@ public final class TestTokenIssuer implements AutoCloseable {
         Client client = clientId == null ? null : clients.get(clientId);
         if (client == null || !client.secret().equals(secret)) {
             respond(exchange, 401, "{\"error\":\"invalid_client\"}");
+            return;
+        }
+        if (!tokenDelay.isZero()) {
+            try {
+                Thread.sleep(tokenDelay);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            respond(exchange, 503, "{\"error\":\"temporarily_unavailable\"}");
             return;
         }
         String token = serviceToken(clientId).audiences(client.audiences().toArray(String[]::new)).sign();

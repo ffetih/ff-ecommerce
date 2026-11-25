@@ -13,6 +13,13 @@ import java.util.UUID;
  */
 public record Requester(UUID customerId, boolean anyCustomer) {
 
+    /** Exactly one of the two: a customer has an id, the back office has none. */
+    public Requester {
+        if (anyCustomer == (customerId != null)) {
+            throw new IllegalArgumentException("A requester is either a customer with an id or the back office");
+        }
+    }
+
     public static Requester customer(UUID customerId) {
         return new Requester(Objects.requireNonNull(customerId, "customerId is required"), false);
     }
