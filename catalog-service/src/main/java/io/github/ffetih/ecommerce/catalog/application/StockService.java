@@ -1,11 +1,13 @@
 package io.github.ffetih.ecommerce.catalog.application;
 
+import io.github.ffetih.ecommerce.catalog.application.port.StockEvents;
 import io.github.ffetih.ecommerce.catalog.application.port.StockReceiptRepository;
 import io.github.ffetih.ecommerce.catalog.application.port.StockRepository;
 import io.github.ffetih.ecommerce.catalog.application.port.Transactions;
 import io.github.ffetih.ecommerce.catalog.domain.Sku;
 import io.github.ffetih.ecommerce.catalog.domain.StockItem;
 import io.github.ffetih.ecommerce.catalog.domain.StockReceipt;
+import io.github.ffetih.ecommerce.events.catalog.StockChanged;
 
 import java.time.Clock;
 import java.util.List;
@@ -16,12 +18,15 @@ public class StockService {
 
     private final StockRepository stock;
     private final StockReceiptRepository receipts;
+    private final StockEvents events;
     private final Transactions transactions;
     private final Clock clock;
 
-    public StockService(StockRepository stock, StockReceiptRepository receipts, Transactions transactions, Clock clock) {
+    public StockService(StockRepository stock, StockReceiptRepository receipts, StockEvents events,
+                        Transactions transactions, Clock clock) {
         this.stock = stock;
         this.receipts = receipts;
+        this.events = events;
         this.transactions = transactions;
         this.clock = clock;
     }
@@ -47,6 +52,7 @@ public class StockService {
             StockItem updated = current.receive(quantity);
             stock.save(updated);
             receipts.save(new StockReceipt(referenceId, sku, quantity, clock.instant()));
+            events.stockChanged(updated, StockChanged.RECEIVED, referenceId);
             return updated;
         });
     }

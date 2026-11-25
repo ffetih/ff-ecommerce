@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>io.github.ffetih.ecommerce</groupId>
+        <artifactId>ecommerce-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>events</artifactId>
+    <name>Events</name>
+    <description>
+        Java descriptions of the JSON event payloads (ADR-0006). Plain Java, no dependencies:
+        the JSON documents are the contract, these records are a convenience for Java consumers.
+    </description>
+</project>

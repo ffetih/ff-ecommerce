@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: messaging-it
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:messaging-schema.sql,classpath:it-schema.sql
+  kafka:
+    consumer:
+      auto-offset-reset: earliest
+      # Deserialization errors are reported to the error handler instead of failing inside poll().
+      key-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+        spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      properties:
+        # Fail fast when a topic does not exist (auto-creation is off in these tests).
+        max.block.ms: 3000
+
+ecommerce:
+  messaging:
+    outbox:
+      # Tests call relayOnce() directly, so runs are deterministic.
+      relay-enabled: false
+      initial-backoff: 200ms
+      # Small batches force two relays to share the work in the competition test.
+      batch-size: 4
+      max-per-key: 5
