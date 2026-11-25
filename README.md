@@ -24,7 +24,8 @@ and tests that prove what the sprint claims.
 | s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
-| s05 | Security: Keycloak, OAuth2 resource servers, ownership checks, service-to-service tokens, API gateway | in progress |
+| s05 | Security: Keycloak, OAuth2 resource servers with enforced deny-by-default, identity and ownership from the token, service-to-service tokens, routing-only gateway | done |
+| s06 | Saga hardening: cancel/dispatch race, delivery after dispatch, reservation expiry, outbox and dead-letter metrics | next |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -110,6 +111,22 @@ is a `409`. Unknown or retired products and inactive customers give `422`; an un
 
 Shipments are created from `order.order-confirmed` events, not through the API. Customers cannot see
 their shipment yet; exposing the tracking number on the order is on the roadmap.
+
+## Security
+
+Keycloak issues the tokens; each service checks them itself ([ADR-0008](docs/adr/0008-security.md)):
+
+- **Token validation:** signature (keys discovered from the issuer), issuer, expiry, and an audience
+  naming the service. A service without issuer or audience refuses to start.
+- **Deny by default:** endpoints are listed with their allowed roles; everything else is denied. A
+  service whose filter chains bypass the shared `security` module refuses to start.
+- **Identity from the token:** the customer id is the token's `sub`; no request names a customer.
+  Someone else's order answers `404`.
+- **Service-to-service:** order-service calls customer and catalog with its own client-credentials
+  token, cached, with timeouts, renewed once if rejected.
+- **Gateway:** routes only; a request that bypasses it meets the same checks.
+
+Known limits (development realm, unauthenticated Kafka, audience for people) are listed in the ADR.
 
 ## Order saga
 

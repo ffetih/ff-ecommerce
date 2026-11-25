@@ -52,7 +52,8 @@ into its own Flyway migration, keeping full ownership of its schema.
 
 - No distributed transaction is needed, and no event is lost or reordered per key.
 - Consumers must be idempotent; the inbox makes that a one-line check.
-- One poisoned event blocks its own key until fixed. This is deliberate and needs monitoring (s08).
+- One poisoned event blocks its own key until fixed. This is deliberate and needs monitoring: the age
+  of the oldest unpublished row and the dead-letter count arrive in s06, dashboards and alerts in s09.
 - Events are delivered with a small delay (the poll interval).
 
 ## Alternatives considered

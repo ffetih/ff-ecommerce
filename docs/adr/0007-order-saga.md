@@ -58,12 +58,12 @@ accepted the cancellation while the parcel is on its way. Catalog and order-serv
 `shipment-dispatched` for a released reservation and a cancelled order; both refuse it, and the event lands
 in the dead-letter topic where it is visible for manual handling (a return). The proper fix is to make
 cancellation of a confirmed order a *request* that shipping accepts or rejects before order-service
-commits to it; it is deferred until it is worth the extra round trip.
+commits to it. It is scheduled for s06 (saga hardening), before payments make the gap a financial one.
 
 ## Consequences
 
 - No coordinator to operate, and each service stays usable when another is down; events wait in Kafka.
-- The overall flow is only visible in this document and in tracing (s08), not in one class.
+- The overall flow is only visible in this document and in tracing (s09), not in one class.
 - Every handler must be idempotent and tolerate late events; the order state machine ignores steps it
   has already passed.
 
@@ -71,6 +71,6 @@ commits to it; it is deferred until it is worth the extra round trip.
 
 - **Orchestration (a saga orchestrator in order-service):** the flow lives in one place and is easier to
   change, at the cost of a central component that knows every participant. A good choice when the flow
-  grows (for example with payments in s06); revisit then.
+  grows (for example with payments in s07); revisit then.
 - **Synchronous calls with compensation on error:** simple to read, but couples availability: an order
   fails whenever any participant is down.

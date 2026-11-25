@@ -16,12 +16,17 @@ Each sprint is a vertical slice. A sprint is done when:
 | **s02** | Messaging backbone | Reusable transactional outbox (`FOR UPDATE SKIP LOCKED`, per-key ordering, retention), dead-letter topics, safe deserialization |
 | **s03** | Customer & Order | Multi-line orders priced from the catalog; monotonic order state machine |
 | **s04** | Shipping & Saga | Choreographed order saga with correct compensation and reservation release; end-to-end saga test |
-| **s05** | Security | API gateway, OAuth2/OIDC with Keycloak, resource ownership checks, service-to-service tokens |
-| **s06** | Payments | Authorize / capture / refund with idempotency keys and a double-entry ledger; payment step in the saga |
-| **s07** | Returns | Concurrency-safe return limits; refunds through payments |
-| **s08** | Observability | Metrics, distributed tracing, dashboards |
-| **s09** | Packaging | Container images, one-command full stack, Kubernetes manifests |
-| s10+ | Optional | Promotions, wishlist / back-in-stock notifications |
+| **s05** | Security | Keycloak realm as code; every service an OAuth2 resource server with audience checks and enforced deny-by-default; identity and ownership from the token; service-to-service client credentials; routing-only gateway ([ADR-0008](adr/0008-security.md)) |
+| **s06** | Saga hardening | Cancellation as a request that shipping accepts or refuses (closes the cancel/dispatch race); delivery only after dispatch; expiry for reservations that are never shipped; metrics for the oldest unpublished outbox row and dead-lettered records; admin product deactivation; inbox retention longer than topic retention |
+| **s07** | Payments | Authorize / capture / refund with idempotency keys and a double-entry ledger; payment step in the order flow, re-evaluating orchestration vs. choreography (ADR-0007) |
+| **s08** | Returns | Concurrency-safe return limits; refunds through payments |
+| **s09** | Observability | Metrics, distributed tracing, dashboards, alerts |
+| **s10** | Packaging | Container images, one-command full stack, Kubernetes manifests, Kafka authentication |
+| s11+ | Optional | Promotions, wishlist / back-in-stock notifications, shipment tracking for customers |
+
+Saga hardening comes before payments on purpose: once money moves, a cancelled order whose parcel is
+already on its way, or a delivery recorded without a dispatch, is a financial inconsistency rather
+than a stock one. Those gaps are closed first, each proven by an integration test.
 
 ## Engineering conventions
 
