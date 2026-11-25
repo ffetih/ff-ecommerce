@@ -104,12 +104,18 @@ public record Order(
         return withStatus(Status.SHIPPED, null, now);
     }
 
-    /** A delivery may be reported before the shipment notice arrives; CONFIRMED -> DELIVERED is allowed. */
+    /**
+     * Only a shipped order can be delivered. Dispatch and delivery arrive on the same topic with the
+     * order id as key, so delivery never overtakes dispatch in normal operation. If it seems to, the
+     * dispatch was dead-lettered: accepting the delivery would mark the order delivered while the
+     * catalog never committed its stock. Refusing sends this event to the dead-letter topic too, next
+     * to the dispatch it depends on.
+     */
     public Order deliver(Instant now) {
         if (status == Status.DELIVERED) {
             return this;
         }
-        if (status != Status.CONFIRMED && status != Status.SHIPPED) {
+        if (status != Status.SHIPPED) {
             throw new IllegalOrderTransitionException(id, status, "deliver");
         }
         return withStatus(Status.DELIVERED, null, now);

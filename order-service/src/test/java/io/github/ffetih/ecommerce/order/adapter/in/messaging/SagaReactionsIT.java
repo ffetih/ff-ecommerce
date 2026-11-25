@@ -8,6 +8,7 @@ import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
+import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.Requester;
@@ -113,6 +114,22 @@ class SagaReactionsIT {
         awaitStatus(orderId, Order.Status.DELIVERED);
     }
 
+    @Test
+    void aDeliveryForAnOrderThatWasNeverShippedIsDeadLetteredAndChangesNothing() throws Exception {
+        UUID orderId = placedOrder();
+        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
+                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitStatus(orderId, Order.Status.CONFIRMED);
+
+        // As if shipment-dispatched had been dead-lettered: the delivery arrives without it.
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentDelivered.TYPE,
+                new ShipmentDelivered(UUID.randomUUID(), orderId));
+
+        assertThat(eventTypes(DeadLetters.topicFor(ShipmentDispatched.TOPIC), orderId, 1))
+                .containsExactly(ShipmentDelivered.TYPE);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.CONFIRMED);
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     private UUID placedOrder() {
@@ -136,6 +153,11 @@ class SagaReactionsIT {
 
     /** Event types order-service published for one order; keeps polling briefly to catch extras. */
     private List<String> lifecycleEventTypes(UUID orderId, int expected) {
+        return eventTypes(OrderPlaced.TOPIC, orderId, expected);
+    }
+
+    /** Event types on a topic for one order, read from the start; keeps polling briefly to catch extras. */
+    private List<String> eventTypes(String topic, UUID orderId, int expected) {
         Map<String, Object> config = Map.of(
                 ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, TestcontainersConfiguration.kafkaBootstrapServers(),
                 ConsumerConfig.GROUP_ID_CONFIG, "saga-reactions-it-" + UUID.randomUUID(),
@@ -144,7 +166,7 @@ class SagaReactionsIT {
                 ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
         List<String> types = new ArrayList<>();
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(config)) {
-            consumer.subscribe(List.of(OrderPlaced.TOPIC));
+            consumer.subscribe(List.of(topic));
             Instant deadline = Instant.now().plusSeconds(20);
             Instant settleUntil = null;
             while (Instant.now().isBefore(deadline) && (settleUntil == null || Instant.now().isBefore(settleUntil))) {

@@ -71,8 +71,9 @@ class OrderTest {
     }
 
     @Test
-    void acceptsADeliveryReportedBeforeTheShipmentNotice() {
-        assertThat(in(Order.Status.CONFIRMED).deliver(NOW).status()).isEqualTo(Order.Status.DELIVERED);
+    void refusesToDeliverAnOrderThatWasNeverShipped() {
+        // Delivery never overtakes dispatch on the topic; if it seems to, the dispatch was dead-lettered.
+        assertIllegal(Order.Status.CONFIRMED, order -> order.deliver(NOW));
     }
 
     @ParameterizedTest

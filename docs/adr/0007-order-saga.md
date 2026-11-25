@@ -45,6 +45,7 @@ so the events of one order are consumed in order within each topic.
 | Customer cancels a confirmed order | `order-cancelled`; catalog releases, shipping cancels the not-yet-dispatched shipment. |
 | `stock-reserved` arrives for an order that was cancelled meanwhile | Order publishes `order-cancelled` again so catalog releases the late reservation. |
 | Shipment already dispatched | The order cannot be cancelled any more; it becomes a return (later sprint). |
+| `shipment-delivered` arrives for an order that was never shipped | Refused, so it goes to the dead-letter topic next to the dispatch it depends on (which can only be missing because it was dead-lettered itself). Accepting it would show a delivered order whose stock was never committed. |
 
 **Business failures are results, not exceptions.** A participant that fails a step for a business
 reason (insufficient stock) records the failure event in the *same* transaction as its inbox entry and
