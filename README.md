@@ -53,8 +53,11 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 Every stock change is published as a `catalog.stock-changed` event on topic `catalog.stock`
 (key: SKU), recorded in the same transaction as the change.
 
-Errors are RFC 9457 problem responses (`application/problem+json`). The API is unauthenticated
-until the security sprint (s05).
+Errors are RFC 9457 problem responses (`application/problem+json`).
+
+Access: reading products is public; every other endpoint requires the `admin` role. Calls carry a
+Keycloak access token (`Authorization: Bearer …`) whose `aud` includes `catalog-service`; see
+[infra/keycloak](infra/keycloak) and `scripts/dev-auth.sh`.
 
 ### order-service API
 

@@ -9,7 +9,10 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Map;
 
-/** Minimal JSON-over-HTTP client for the tests: every status is returned, never thrown. */
+/**
+ * Minimal JSON-over-HTTP client for the tests: every status is returned, never thrown. Calls carry
+ * the given bearer token, or none.
+ */
 final class Api {
 
     record Response(int status, JsonNode body) {
@@ -24,7 +27,18 @@ final class Api {
     private final RestClient rest;
 
     Api(String baseUrl) {
-        this.rest = RestClient.create(baseUrl);
+        this(baseUrl, null);
+    }
+
+    Api(String baseUrl, String bearerToken) {
+        this.rest = RestClient.builder()
+                .baseUrl(baseUrl)
+                .defaultHeaders(headers -> {
+                    if (bearerToken != null) {
+                        headers.setBearerAuth(bearerToken);
+                    }
+                })
+                .build();
     }
 
     Response get(String path) {

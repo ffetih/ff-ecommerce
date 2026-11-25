@@ -1,6 +1,5 @@
 package io.github.ffetih.ecommerce.e2e;
 
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -27,18 +26,13 @@ class OrderSagaE2EIT {
 
     @BeforeAll
     static void startPlatform() throws Exception {
-        platform = Platform.start();
-        catalog = new Api(platform.catalog.baseUrl());
+        platform = Platform.shared();
+        // Stocking the catalog and moving shipments along are back-office work.
+        String admin = platform.tokens.user("admin");
+        catalog = new Api(platform.catalog.baseUrl(), admin);
         customers = new Api(platform.customer.baseUrl());
         orders = new Api(platform.order.baseUrl());
-        shipping = new Api(platform.shipping.baseUrl());
-    }
-
-    @AfterAll
-    static void stopPlatform() {
-        if (platform != null) {
-            platform.close();
-        }
+        shipping = new Api(platform.shipping.baseUrl(), admin);
     }
 
     @Test

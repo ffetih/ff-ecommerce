@@ -24,6 +24,13 @@ spring:
       properties:
         spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
         spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Signing keys are discovered from the issuer; tokens must name this service in "aud".
+          issuer-uri: ${ISSUER_URI:http://localhost:8180/realms/ecommerce}
+          audiences: shipping-service
   jpa:
     open-in-view: false
     hibernate:
