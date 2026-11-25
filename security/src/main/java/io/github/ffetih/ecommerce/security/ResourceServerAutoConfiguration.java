@@ -1,12 +1,14 @@
 package io.github.ffetih.ecommerce.security;
 
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.web.SecurityFilterChain;
 import tools.jackson.databind.json.JsonMapper;
 
 /** Registers {@link ResourceServerSecurity} for every servlet service that depends on this module. */
@@ -32,5 +34,12 @@ public class ResourceServerAutoConfiguration {
         var problems = new ProblemResponses(json.getIfAvailable(() -> JsonMapper.builder().build()));
         return new ResourceServerSecurity(authenticationConverter,
                 problems.authenticationEntryPoint(), problems.accessDeniedHandler());
+    }
+
+    /** Runs once all beans exist, so every filter chain of the application has been built by then. */
+    @Bean
+    SmartInitializingSingleton securityFilterChainCheck(ResourceServerSecurity resourceServer,
+                                                        ObjectProvider<SecurityFilterChain> chains) {
+        return () -> resourceServer.requireAllChainsBuiltHere(chains.stream().count());
     }
 }

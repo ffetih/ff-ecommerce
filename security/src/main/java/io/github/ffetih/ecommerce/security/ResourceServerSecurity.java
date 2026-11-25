@@ -14,6 +14,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Builds a service's security filter chain as a stateless OAuth2 resource server.
@@ -27,6 +28,8 @@ import java.util.List;
  *       forgotten endpoint is closed, not open);</li>
  *   <li>401 and 403 are problem responses with an RFC 6750 {@code WWW-Authenticate} header.</li>
  * </ul>
+ * A service that depends on this module must build all its filter chains here; startup fails
+ * otherwise (see {@link #requireAllChainsBuiltHere}).
  *
  * <pre>{@code
  * @Bean
@@ -48,6 +51,7 @@ public final class ResourceServerSecurity {
     private final JwtAuthenticationConverter authenticationConverter;
     private final AuthenticationEntryPoint authenticationEntryPoint;
     private final AccessDeniedHandler accessDeniedHandler;
+    private final AtomicInteger chainsBuilt = new AtomicInteger();
 
     ResourceServerSecurity(JwtAuthenticationConverter authenticationConverter,
                            AuthenticationEntryPoint authenticationEntryPoint,
@@ -77,7 +81,22 @@ public final class ResourceServerSecurity {
                     allowed.customize(rules);
                     rules.anyRequest().denyAll();
                 });
+        chainsBuilt.incrementAndGet();
         return http.build();
+    }
+
+    /**
+     * Fails startup unless every {@link SecurityFilterChain} of the application came from
+     * {@link #build}. Without a chain of its own, Spring Boot would add its default one, which lets
+     * any valid token reach any endpoint; a hand-written chain could skip deny-by-default. Both are
+     * mistakes to catch at startup, not in production.
+     */
+    void requireAllChainsBuiltHere(long chainsInApplication) {
+        if (chainsBuilt.get() == 0 || chainsInApplication != chainsBuilt.get()) {
+            throw new IllegalStateException(("This service has %d security filter chain(s), %d of them built with "
+                    + "ResourceServerSecurity.build(http, rules). Declare exactly the chains you need with it, so that "
+                    + "unlisted endpoints are denied.").formatted(chainsInApplication, chainsBuilt.get()));
+        }
     }
 
     /**
