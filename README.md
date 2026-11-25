@@ -20,6 +20,7 @@ and tests that prove what the sprint claims.
 | --- | --- | --- |
 | s00 | Foundation: build, local infrastructure, CI | done |
 | s01 | Catalog & inventory: server-side prices, concurrency-safe stock reservations | done |
+| s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -43,8 +44,23 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 | `POST` | `/api/v1/reservations/{orderId}/commit` | Order shipped: reserved units leave stock |
 | `POST` | `/api/v1/reservations/{orderId}/release` | Order cancelled: reserved units become available |
 
+Every stock change is published as a `catalog.stock-changed` event on topic `catalog.stock`
+(key: SKU), recorded in the same transaction as the change.
+
 Errors are RFC 9457 problem responses (`application/problem+json`). The API is unauthenticated
 until the security sprint (s05).
+
+## Messaging
+
+The `messaging` module gives every service the same guarantees ([ADR-0005](docs/adr/0005-transactional-outbox-and-inbox.md),
+[ADR-0006](docs/adr/0006-event-format.md)):
+
+- **Outbox:** events are written in the business transaction and relayed to Kafka afterwards; nothing is
+  published for a rolled-back change, and nothing is lost if Kafka is down.
+- **Ordered relay:** events of one key are published in commit order; relay instances share work with
+  `FOR UPDATE SKIP LOCKED`; a failing event blocks only its own key and is retried with backoff.
+- **Inbox:** consumers record processed event ids in their own transaction, so redeliveries have no effect.
+- **Dead letters:** failing records are retried briefly, then moved to `<topic>-dlt`; unreadable ones go there immediately.
 
 ## Build and test
 
