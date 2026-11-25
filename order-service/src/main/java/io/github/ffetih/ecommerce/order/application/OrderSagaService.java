@@ -84,11 +84,15 @@ public class OrderSagaService {
 
     /**
      * The customer cancels. Allowed until the parcel is dispatched; the order's state machine refuses it
-     * afterwards (409). Catalog and shipping react to the {@code order-cancelled} event.
+     * afterwards (409). Catalog and shipping react to the {@code order-cancelled} event. Only the
+     * order's customer or the back office may cancel; for anyone else the order does not exist (404).
      */
-    public Order cancelByCustomer(UUID orderId, String reason) {
+    public Order cancelByCustomer(UUID orderId, String reason, Requester requester) {
         return transactions.inTransaction(() -> {
             Order order = load(orderId);
+            if (!requester.mayActFor(order.customerId())) {
+                throw new OrderNotFoundException(orderId);
+            }
             Order cancelled = order.cancel(reason, clock.instant());
             if (cancelled != order) {
                 orders.update(cancelled);

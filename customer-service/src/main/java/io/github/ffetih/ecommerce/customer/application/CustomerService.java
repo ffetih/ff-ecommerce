@@ -21,12 +21,15 @@ public class CustomerService {
     }
 
     /**
-     * The existence check gives a clear error in the common case; the database unique constraint
-     * still decides when two registrations with the same email race each other.
+     * Creates the profile of the person behind an access token. The checks give a clear error in the
+     * common case; the primary key and the unique email still decide when two registrations race.
      */
-    public Customer register(Email email, String fullName, String shippingAddress) {
-        Customer customer = Customer.register(email, fullName, shippingAddress, clock.instant());
+    public Customer register(UUID id, Email email, String fullName, String shippingAddress) {
+        Customer customer = Customer.register(id, email, fullName, shippingAddress, clock.instant());
         return transactions.inTransaction(() -> {
+            if (customers.existsById(id)) {
+                throw new CustomerAlreadyRegisteredException(id);
+            }
             if (customers.existsByEmail(email)) {
                 throw new EmailAlreadyRegisteredException(email);
             }

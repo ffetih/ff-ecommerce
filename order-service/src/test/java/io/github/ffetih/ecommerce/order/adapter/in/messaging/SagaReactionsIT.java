@@ -10,6 +10,7 @@ import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
+import io.github.ffetih.ecommerce.order.application.Requester;
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import io.github.ffetih.ecommerce.order.domain.Money;
@@ -79,21 +80,21 @@ class SagaReactionsIT {
                 new StockReservationFailed(orderId, "Insufficient stock for KB-01"));
 
         awaitStatus(orderId, Order.Status.CANCELLED);
-        assertThat(orders.get(orderId).cancellationReason()).contains("Insufficient stock");
+        assertThat(orders.get(orderId, Requester.backOffice()).cancellationReason()).contains("Insufficient stock");
         assertThat(lifecycleEventTypes(orderId, 1)).containsExactly(OrderCancelled.TYPE);
     }
 
     @Test
     void aLateReservationForACancelledOrderIsCompensated() throws Exception {
         UUID orderId = placedOrder();
-        saga.cancelByCustomer(orderId, "changed my mind");
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
 
         publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
                 new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
 
         // The first order-cancelled comes from the customer, the second asks catalog to release the late reservation.
         assertThat(lifecycleEventTypes(orderId, 2)).containsExactly(OrderCancelled.TYPE, OrderCancelled.TYPE);
-        assertThat(orders.get(orderId).status()).isEqualTo(Order.Status.CANCELLED);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.CANCELLED);
     }
 
     @Test
@@ -130,7 +131,7 @@ class SagaReactionsIT {
     }
 
     private void awaitStatus(UUID orderId, Order.Status expected) throws InterruptedException {
-        awaitUntil(() -> orders.get(orderId).status() == expected);
+        awaitUntil(() -> orders.get(orderId, Requester.backOffice()).status() == expected);
     }
 
     /** Event types order-service published for one order; keeps polling briefly to catch extras. */

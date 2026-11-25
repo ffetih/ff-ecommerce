@@ -23,6 +23,11 @@ class CustomerPersistenceAdapter implements CustomerRepository {
     }
 
     @Override
+    public boolean existsById(UUID id) {
+        return repository.existsById(id);
+    }
+
+    @Override
     public boolean existsByEmail(Email email) {
         return repository.existsByEmail(email.value());
     }

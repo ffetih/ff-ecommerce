@@ -8,6 +8,8 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 
@@ -17,7 +19,8 @@ import java.util.function.Function;
  */
 public final class StubServer implements AutoCloseable {
 
-    public record Request(String method, String path, String query) {
+    /** @param authorization the {@code Authorization} header as received, or {@code null} */
+    public record Request(String method, String path, String query, String authorization) {
     }
 
     public record Response(int status, String jsonBody, Duration delay) {
@@ -37,6 +40,7 @@ public final class StubServer implements AutoCloseable {
 
     private final HttpServer server;
     private volatile Function<Request, Response> behaviour = request -> Response.status(404);
+    private final ConcurrentLinkedQueue<Request> received = new ConcurrentLinkedQueue<>();
 
     private StubServer(HttpServer server) {
         this.server = server;
@@ -59,6 +63,11 @@ public final class StubServer implements AutoCloseable {
         this.behaviour = behaviour;
     }
 
+    /** Every request received so far, oldest first. */
+    public List<Request> received() {
+        return List.copyOf(received);
+    }
+
     public String baseUrl() {
         return "http://localhost:" + server.getAddress().getPort();
     }
@@ -66,7 +75,8 @@ public final class StubServer implements AutoCloseable {
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             var request = new Request(exchange.getRequestMethod(), exchange.getRequestURI().getPath(),
-                    exchange.getRequestURI().getRawQuery());
+                    exchange.getRequestURI().getRawQuery(), exchange.getRequestHeaders().getFirst("Authorization"));
+            received.add(request);
             Response response = behaviour.apply(request);
             if (!response.delay().isZero()) {
                 try {

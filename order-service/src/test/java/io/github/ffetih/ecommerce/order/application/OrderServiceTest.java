@@ -147,6 +147,22 @@ class OrderServiceTest {
         assertThat(publishedEvents).isEmpty();
     }
 
+    @Test
+    void customersSeeOnlyTheirOwnOrdersAndTheBackOfficeSeesAll() {
+        Order placed = service.place(order(2, 1), UUID.randomUUID()).order();
+        Requester owner = Requester.customer(CUSTOMER);
+        Requester stranger = Requester.customer(UUID.randomUUID());
+
+        assertThat(service.get(placed.id(), owner).id()).isEqualTo(placed.id());
+        assertThat(service.get(placed.id(), Requester.backOffice()).id()).isEqualTo(placed.id());
+        // Not "forbidden": for a stranger the order does not exist.
+        assertThatThrownBy(() -> service.get(placed.id(), stranger)).isInstanceOf(OrderNotFoundException.class);
+
+        assertThat(service.forCustomer(CUSTOMER, owner)).extracting(Order::id).contains(placed.id());
+        assertThat(service.forCustomer(CUSTOMER, Requester.backOffice())).extracting(Order::id).contains(placed.id());
+        assertThatThrownBy(() -> service.forCustomer(CUSTOMER, stranger)).isInstanceOf(NotAllowedException.class);
+    }
+
     // --- fakes ---------------------------------------------------------------------------------
 
     public static final class FakeOrders implements OrderRepository {

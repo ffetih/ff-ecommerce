@@ -59,13 +59,31 @@ Access: reading products is public; every other endpoint requires the `admin` ro
 Keycloak access token (`Authorization: Bearer …`) whose `aud` includes `catalog-service`; see
 [infra/keycloak](infra/keycloak) and `scripts/dev-auth.sh`.
 
+### customer-service API
+
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/customers/me` | customer | Create the caller's profile (id and email come from the token) |
+| `GET` | `/api/v1/customers/me` | customer | The caller's profile |
+| `PUT` | `/api/v1/customers/me/shipping-address` | customer | Change the caller's shipping address |
+| `GET` | `/api/v1/customers/{id}` | admin, service | Any profile (order-service checks customers here) |
+| `POST` | `/api/v1/customers/{id}/deactivate` | admin | Deactivate a customer |
+
+A customer's id is their Keycloak user id (`sub`), so there is no mapping table between logins and
+customers.
+
 ### order-service API
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `POST` | `/api/v1/orders` | Place an order; requires an `Idempotency-Key` header (UUID per order attempt) |
-| `GET` | `/api/v1/orders/{orderId}` | One order with its lines and prices |
-| `GET` | `/api/v1/orders?customerId=…` | A customer's orders, newest first |
+| Method | Path | Who | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/api/v1/orders` | customer | Place an order for the caller; requires an `Idempotency-Key` header (UUID per order attempt) |
+| `GET` | `/api/v1/orders/{orderId}` | owner, admin | One order with its lines and prices |
+| `GET` | `/api/v1/orders` | customer | The caller's orders, newest first (admin: `?customerId=…` for anyone's) |
+| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel before dispatch |
+
+The customer of an order is always the caller. Someone else's order answers `404`, like an unknown id,
+so order ids cannot be probed. order-service calls customer-service and catalog-service with its own
+client-credentials token, not the caller's.
 
 Placing an order reads the customer and current prices synchronously (2 s connect / 3 s read timeouts),
 then stores the order and an `order.order-placed` event in one transaction. Repeating a request with the

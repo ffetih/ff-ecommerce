@@ -4,7 +4,10 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.UUID;
 
-/** A customer account. Deactivated customers keep their history but cannot place new orders. */
+/**
+ * A customer account: the shop profile of a person who logs in through the identity provider.
+ * Deactivated customers keep their history but cannot place new orders.
+ */
 public record Customer(
         UUID id,
         Email email,
@@ -29,8 +32,12 @@ public record Customer(
         shippingAddress = required(shippingAddress, "shippingAddress", 500);
     }
 
-    public static Customer register(Email email, String fullName, String shippingAddress, Instant now) {
-        return new Customer(UUID.randomUUID(), email, fullName, shippingAddress, Status.ACTIVE, now, now);
+    /**
+     * @param id the person's id at the identity provider (the access token's {@code sub}): one
+     *           customer account per login, and no separate mapping table to keep in sync
+     */
+    public static Customer register(UUID id, Email email, String fullName, String shippingAddress, Instant now) {
+        return new Customer(id, email, fullName, shippingAddress, Status.ACTIVE, now, now);
     }
 
     public boolean isActive() {

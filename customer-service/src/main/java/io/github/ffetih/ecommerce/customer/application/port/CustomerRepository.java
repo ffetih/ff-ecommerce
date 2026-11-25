@@ -10,6 +10,8 @@ public interface CustomerRepository {
 
     Optional<Customer> findById(UUID id);
 
+    boolean existsById(UUID id);
+
     boolean existsByEmail(Email email);
 
     void save(Customer customer);

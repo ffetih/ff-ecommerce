@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -19,6 +20,7 @@ class AccessControlE2EIT {
     private static Platform platform;
     private static String admin;
     private static String alice;
+    private static String bob;
     private static String orderService;
 
     @BeforeAll
@@ -26,6 +28,7 @@ class AccessControlE2EIT {
         platform = Platform.shared();
         admin = platform.tokens.user("admin");
         alice = platform.tokens.user("alice");
+        bob = platform.tokens.user("bob");
         orderService = platform.tokens.service("order-service", "order-service-secret");
     }
 
@@ -63,6 +66,39 @@ class AccessControlE2EIT {
         // The realm puts catalog-service and customer-service in its "aud", not shipping-service.
         assertThat(shippingAs(orderService).get("/api/v1/shipments?orderId=" + UUID.randomUUID()).status())
                 .isEqualTo(401);
+    }
+
+    @Test
+    void customersSeeOnlyTheirOwnOrders() {
+        String sku = sku();
+        catalogAs(admin).post("/api/v1/products",
+                "{\"sku\":\"" + sku + "\",\"name\":\"Owned\",\"unitPrice\":5.00,\"currency\":\"EUR\"}");
+        String aliceId = Shop.registered(new Api(platform.customer.baseUrl(), alice), "Alice Archer");
+        // order-service checked alice with customer-service using its own client-credentials token.
+        Api.Response placed = ordersAs(alice).post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
+                "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":1}]}");
+        assertThat(placed.status()).isEqualTo(201);
+        assertThat(placed.text("customerId")).isEqualTo(aliceId).isEqualTo("a11ce000-0000-4000-8000-000000000001");
+        String order = "/api/v1/orders/" + placed.text("id");
+
+        assertThat(ordersAs(alice).get(order).status()).isEqualTo(200);
+        assertThat(ordersAs(bob).get(order).status()).isEqualTo(404);
+        assertThat(ordersAs(bob).post(order + "/cancel", "{\"reason\":\"not mine\"}").status()).isEqualTo(404);
+        assertThat(ordersAs(admin).get(order).status()).isEqualTo(200);
+        assertThat(ordersAs(null).get(order).status()).isEqualTo(401);
+    }
+
+    @Test
+    void customerProfilesAreReadableByServicesNotByOtherCustomers() {
+        String aliceId = Shop.registered(new Api(platform.customer.baseUrl(), alice), "Alice Archer");
+
+        assertThat(new Api(platform.customer.baseUrl(), orderService).get("/api/v1/customers/" + aliceId).status())
+                .isEqualTo(200);
+        assertThat(new Api(platform.customer.baseUrl(), bob).get("/api/v1/customers/" + aliceId).status()).isEqualTo(403);
+    }
+
+    private static Api ordersAs(String token) {
+        return new Api(platform.order.baseUrl(), token);
     }
 
     private static Api catalogAs(String token) {

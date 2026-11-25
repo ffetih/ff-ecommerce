@@ -3,15 +3,16 @@ package io.github.ffetih.ecommerce.order.adapter.in.web;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.PlaceOrderCommand;
+import io.github.ffetih.ecommerce.order.application.Requester;
 import io.github.ffetih.ecommerce.order.domain.Order;
 import io.github.ffetih.ecommerce.order.domain.Sku;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -27,6 +28,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+/**
+ * Orders. The customer is always the caller: the access token's {@code sub}. A request body that
+ * names another customer has no field for it, so it cannot place or read orders for someone else.
+ */
 @RestController
 @RequestMapping("/api/v1/orders")
 class OrderController {
@@ -42,15 +47,16 @@ class OrderController {
     }
 
     /**
-     * Places an order. The client generates a UUID per order attempt and sends it as
+     * Places an order for the caller. The client generates a UUID per order attempt and sends it as
      * {@code Idempotency-Key}; repeating the request (e.g. after a timeout) returns the same order
      * with {@code 200} and {@code Idempotent-Replayed: true} instead of creating a second one.
      */
     @PostMapping
-    ResponseEntity<OrderResponse> place(@RequestHeader(IDEMPOTENCY_KEY) UUID idempotencyKey,
+    ResponseEntity<OrderResponse> place(JwtAuthenticationToken caller,
+                                        @RequestHeader(IDEMPOTENCY_KEY) UUID idempotencyKey,
                                         @Valid @RequestBody PlaceOrderRequest request) {
         var command = new PlaceOrderCommand(
-                request.customerId(),
+                Requesters.customerId(caller),
                 request.lines().stream().map(line -> new PlaceOrderCommand.Line(Sku.of(line.sku()), line.quantity())).toList(),
                 request.shippingAddress());
         OrderService.Placement placement = orders.place(command, idempotencyKey);
@@ -62,26 +68,28 @@ class OrderController {
     }
 
     @GetMapping("/{orderId}")
-    OrderResponse get(@PathVariable UUID orderId) {
-        return OrderResponse.from(orders.get(orderId));
+    OrderResponse get(JwtAuthenticationToken caller, @PathVariable UUID orderId) {
+        return OrderResponse.from(orders.get(orderId, Requesters.of(caller)));
     }
 
+    /** The caller's orders; the back office may ask for any customer's with {@code ?customerId=}. */
     @GetMapping
-    List<OrderResponse> forCustomer(@RequestParam UUID customerId) {
-        return orders.forCustomer(customerId).stream().map(OrderResponse::from).toList();
+    List<OrderResponse> list(JwtAuthenticationToken caller, @RequestParam(required = false) UUID customerId) {
+        UUID whose = customerId != null ? customerId : Requesters.customerId(caller);
+        return orders.forCustomer(whose, Requesters.of(caller)).stream().map(OrderResponse::from).toList();
     }
 
     /** Possible until the parcel is dispatched; afterwards {@code 409}. Repeating it changes nothing. */
     @PostMapping("/{orderId}/cancel")
-    OrderResponse cancel(@PathVariable UUID orderId, @Valid @RequestBody CancelRequest request) {
-        return OrderResponse.from(saga.cancelByCustomer(orderId, request.reason()));
+    OrderResponse cancel(JwtAuthenticationToken caller, @PathVariable UUID orderId,
+                         @Valid @RequestBody CancelRequest request) {
+        return OrderResponse.from(saga.cancelByCustomer(orderId, request.reason(), Requesters.of(caller)));
     }
 
     record CancelRequest(@NotBlank @Size(max = 500) String reason) {
     }
 
     record PlaceOrderRequest(
-            @NotNull UUID customerId,
             @NotEmpty @Size(max = Order.MAX_LINES) List<@Valid LineRequest> lines,
             String shippingAddress) {
     }
