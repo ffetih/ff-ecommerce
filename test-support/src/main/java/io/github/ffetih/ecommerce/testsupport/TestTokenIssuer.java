@@ -17,14 +17,19 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 
 /**
@@ -34,14 +39,22 @@ import java.util.concurrent.Executors;
  * <p>Services under test are configured exactly as in production ({@code issuer-uri} plus
  * {@code audiences}), so the tests exercise the real validation path: discovery, key retrieval,
  * signature, issuer, audience and expiry. Only end-to-end tests need the real Keycloak.
+ *
+ * <p>Clients registered with {@link #registerClient} can also get tokens from the token endpoint
+ * (client credentials grant), the way a service gets its own token to call another service.
  */
 public final class TestTokenIssuer implements AutoCloseable {
 
     private static final String REALM_PATH = "/realms/test";
 
+    private record Client(String secret, List<String> audiences) {
+    }
+
     private final HttpServer server;
     private final RSAKey signingKey;
     private volatile RSAKey unknownKey;
+    private final Map<String, Client> clients = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> issued = new ConcurrentHashMap<>();
 
     private TestTokenIssuer(HttpServer server, RSAKey signingKey) {
         this.server = server;
@@ -55,6 +68,7 @@ public final class TestTokenIssuer implements AutoCloseable {
             TestTokenIssuer issuer = new TestTokenIssuer(server, newKey());
             server.createContext(REALM_PATH + "/.well-known/openid-configuration", issuer::discovery);
             server.createContext(REALM_PATH + "/protocol/openid-connect/certs", issuer::keys);
+            server.createContext(REALM_PATH + "/protocol/openid-connect/token", issuer::tokenEndpoint);
             server.start();
             return issuer;
         } catch (IOException e) {
@@ -75,6 +89,20 @@ public final class TestTokenIssuer implements AutoCloseable {
     /** A token for a Keycloak service account: subject is random, the only role is {@code service}. */
     public Token serviceToken(String clientId) {
         return new Token(UUID.randomUUID().toString()).roles("service").claim("azp", clientId);
+    }
+
+    /**
+     * Lets a confidential client get tokens with the client credentials grant, like a Keycloak
+     * client with a service account. Its tokens carry the role {@code service} and the given audiences.
+     */
+    public TestTokenIssuer registerClient(String clientId, String secret, String... audiences) {
+        clients.put(clientId, new Client(secret, List.of(audiences)));
+        return this;
+    }
+
+    /** Every token the token endpoint has handed out to this client, oldest first. */
+    public List<String> issuedTo(String clientId) {
+        return List.copyOf(issued.getOrDefault(clientId, List.of()));
     }
 
     @Override
@@ -180,11 +208,54 @@ public final class TestTokenIssuer implements AutoCloseable {
         respond(exchange, new JWKSet(signingKey.toPublicJWK()).toString());
     }
 
+    /** Client credentials only; the client authenticates with HTTP Basic or with form fields. */
+    private void tokenEndpoint(HttpExchange exchange) throws IOException {
+        Map<String, String> form = parseForm(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+        String clientId = form.get("client_id");
+        String secret = form.get("client_secret");
+        String authorization = exchange.getRequestHeaders().getFirst("Authorization");
+        if (authorization != null && authorization.startsWith("Basic ")) {
+            String[] credentials = new String(Base64.getDecoder().decode(authorization.substring(6)), StandardCharsets.UTF_8)
+                    .split(":", 2);
+            clientId = URLDecoder.decode(credentials[0], StandardCharsets.UTF_8);
+            secret = credentials.length > 1 ? URLDecoder.decode(credentials[1], StandardCharsets.UTF_8) : null;
+        }
+        if (!"client_credentials".equals(form.get("grant_type"))) {
+            respond(exchange, 400, "{\"error\":\"unsupported_grant_type\"}");
+            return;
+        }
+        Client client = clientId == null ? null : clients.get(clientId);
+        if (client == null || !client.secret().equals(secret)) {
+            respond(exchange, 401, "{\"error\":\"invalid_client\"}");
+            return;
+        }
+        String token = serviceToken(clientId).audiences(client.audiences().toArray(String[]::new)).sign();
+        issued.computeIfAbsent(clientId, id -> new CopyOnWriteArrayList<>()).add(token);
+        respond(exchange, 200, "{\"access_token\":\"" + token + "\",\"token_type\":\"Bearer\",\"expires_in\":300}");
+    }
+
+    private static Map<String, String> parseForm(String body) {
+        Map<String, String> form = new HashMap<>();
+        for (String pair : body.split("&")) {
+            if (pair.isEmpty()) {
+                continue;
+            }
+            String[] kv = pair.split("=", 2);
+            form.put(URLDecoder.decode(kv[0], StandardCharsets.UTF_8),
+                    kv.length > 1 ? URLDecoder.decode(kv[1], StandardCharsets.UTF_8) : "");
+        }
+        return form;
+    }
+
     private static void respond(HttpExchange exchange, String json) throws IOException {
+        respond(exchange, 200, json);
+    }
+
+    private static void respond(HttpExchange exchange, int status, String json) throws IOException {
         try (exchange) {
             byte[] body = json.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
+            exchange.sendResponseHeaders(status, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
                 out.write(body);
             }
