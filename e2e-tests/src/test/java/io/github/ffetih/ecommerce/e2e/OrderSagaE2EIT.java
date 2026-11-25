@@ -3,11 +3,8 @@ package io.github.ffetih.ecommerce.e2e;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -85,17 +82,10 @@ class OrderSagaE2EIT {
         awaitUntil(() -> "CANCELLED".equals(shipping.get("/api/v1/shipments?orderId=" + order).text("status")));
     }
 
-    // --- steps -------------------------------------------------------------------------------
+    // --- steps (shared with the other end-to-end tests in Shop) -------------------------------
 
     private static String productWithStock(int quantity) {
-        String sku = "E2E-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
-        assertThat(catalog.post("/api/v1/products",
-                "{\"sku\":\"" + sku + "\",\"name\":\"E2E product\",\"unitPrice\":19.99,\"currency\":\"EUR\"}").status())
-                .isEqualTo(201);
-        assertThat(catalog.post("/api/v1/stock/" + sku + "/receipts",
-                "{\"referenceId\":\"" + UUID.randomUUID() + "\",\"quantity\":" + quantity + "}").status())
-                .isEqualTo(200);
-        return sku;
+        return Shop.productWithStock(catalog, quantity);
     }
 
     /** Alice's customer profile; registered on first use (the platform is shared between test classes). */
@@ -104,43 +94,25 @@ class OrderSagaE2EIT {
     }
 
     private static String placeOrder(String customer, String sku, int quantity) {
-        Api.Response placed = orders.post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":" + quantity + "}]}");
-        assertThat(placed.status()).isEqualTo(201);
-        assertThat(placed.text("status")).isEqualTo("PLACED");
+        Api.Response placed = Shop.placeOrder(orders, sku, quantity);
         assertThat(placed.text("customerId")).isEqualTo(customer);
         return placed.text("id");
     }
 
     private static int stock(String sku, String field) {
-        return catalog.get("/api/v1/stock/" + sku).body().get(field).asInt();
+        return Shop.stock(catalog, sku, field);
     }
 
     private static void awaitOrderStatus(String order, String status) throws InterruptedException {
-        awaitUntil(() -> status.equals(orders.get("/api/v1/orders/" + order).text("status")));
+        Shop.awaitOrderStatus(orders, order, status);
     }
 
-    private static Api.Response awaitValue(Supplier<Api.Response> call,
-                                           java.util.function.Predicate<Api.Response> ready) throws InterruptedException {
-        Instant deadline = Instant.now().plus(Duration.ofSeconds(30));
-        Api.Response last = call.get();
-        while (!ready.test(last)) {
-            if (Instant.now().isAfter(deadline)) {
-                throw new AssertionError("Not ready within 30s; last response: " + last);
-            }
-            Thread.sleep(250);
-            last = call.get();
-        }
-        return last;
+    private static Api.Response awaitValue(Supplier<Api.Response> call, Predicate<Api.Response> ready)
+            throws InterruptedException {
+        return Shop.awaitValue(call, ready);
     }
 
-    private static void awaitUntil(Supplier<Boolean> condition) throws InterruptedException {
-        Instant deadline = Instant.now().plus(Duration.ofSeconds(30));
-        while (!condition.get()) {
-            if (Instant.now().isAfter(deadline)) {
-                throw new AssertionError("Condition not met within 30s");
-            }
-            Thread.sleep(250);
-        }
+    private static void awaitUntil(BooleanSupplier condition) throws InterruptedException {
+        Shop.awaitUntil(condition);
     }
 }
