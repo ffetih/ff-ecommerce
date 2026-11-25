@@ -1,0 +1,129 @@
+{
+  "realm": "ecommerce",
+  "displayName": "E-Commerce (local development)",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": false,
+  "accessTokenLifespan": 900,
+  "roles": {
+    "realm": [
+      { "name": "customer", "description": "Shopper: manages their own profile and orders" },
+      { "name": "admin", "description": "Back office: catalog, stock, any order, shipments" },
+      { "name": "service", "description": "Machine identity of an internal service" }
+    ]
+  },
+  "users": [
+    {
+      "id": "a11ce000-0000-4000-8000-000000000001",
+      "username": "alice",
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Archer",
+      "enabled": true,
+      "credentials": [ { "type": "password", "value": "alice", "temporary": false } ],
+      "realmRoles": [ "customer" ]
+    },
+    {
+      "id": "b0b00000-0000-4000-8000-000000000002",
+      "username": "bob",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Baker",
+      "enabled": true,
+      "credentials": [ { "type": "password", "value": "bob", "temporary": false } ],
+      "realmRoles": [ "customer" ]
+    },
+    {
+      "id": "ad000000-0000-4000-8000-000000000003",
+      "username": "admin",
+      "email": "admin@example.com",
+      "emailVerified": true,
+      "firstName": "Ada",
+      "lastName": "Admin",
+      "enabled": true,
+      "credentials": [ { "type": "password", "value": "admin", "temporary": false } ],
+      "realmRoles": [ "admin" ]
+    },
+    {
+      "username": "service-account-order-service",
+      "enabled": true,
+      "serviceAccountClientId": "order-service",
+      "realmRoles": [ "service" ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ecommerce-cli",
+      "name": "Command line (device flow)",
+      "description": "Public client for terminals: log in through the browser with a device code.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "attributes": { "oauth2.device.authorization.grant.enabled": "true" },
+      "protocolMappers": [
+        { "name": "aud-catalog-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "catalog-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-customer-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "customer-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-order-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "order-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-shipping-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+      ]
+    },
+    {
+      "clientId": "ecommerce-dev",
+      "name": "DEV AND TEST ONLY: password grant",
+      "description": "Lets scripts and end-to-end tests log in with a username and password. The password grant is deprecated (OAuth 2.0 Security BCP); this client must not exist in a real realm.",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        { "name": "aud-catalog-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "catalog-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-customer-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "customer-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-order-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "order-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-shipping-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+      ]
+    },
+    {
+      "clientId": "order-service",
+      "name": "order-service (machine identity)",
+      "description": "Client credentials for order-service when it calls catalog-service and customer-service.",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "order-service-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocol": "openid-connect",
+      "defaultClientScopes": [ "basic", "roles", "acr" ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        { "name": "aud-catalog-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "catalog-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-customer-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "customer-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+      ]
+    }
+  ]
+}

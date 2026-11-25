@@ -2,6 +2,7 @@
 # Services run on the host (IDE or ./mvnw spring-boot:run) and connect to:
 #   PostgreSQL  localhost:5432
 #   Kafka       localhost:9092   (containers on this network use kafka:29092)
+#   Keycloak    http://localhost:8180  (realm "ecommerce"; admin console login kcadmin / kcadmin)
 #   Kafka UI    http://localhost:8090   (optional: docker compose --profile tools up -d)
 #
 # Image versions are kept in sync with the Testcontainers images in test-support.
@@ -57,6 +58,36 @@ services:
       resources:
         limits:
           memory: 768M
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    # Dev mode with its embedded database: the realm is code (infra/keycloak/import) and is
+    # imported when the container is created. After editing it:
+    #   docker compose up -d --force-recreate keycloak
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "8180:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./infra/keycloak/import:/opt/keycloak/data/import:ro
+    healthcheck:
+      # The image has no curl: speak HTTP to the management port (9000) through bash.
+      test:
+        - CMD
+        - bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 30
+    deploy:
+      resources:
+        limits:
+          memory: 1G
 
   kafka-ui:
     image: ghcr.io/kafbat/kafka-ui:latest
