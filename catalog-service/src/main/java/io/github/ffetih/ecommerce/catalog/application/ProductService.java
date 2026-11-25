@@ -47,6 +47,17 @@ public class ProductService {
         });
     }
 
+    /**
+     * Takes a product off sale: order-service refuses new orders for it, while orders already placed
+     * keep their reservation and complete. Deactivating an inactive product changes nothing.
+     */
+    public Product deactivate(Sku sku) {
+        return transactions.inTransaction(() -> {
+            Product product = products.findBySku(sku).orElseThrow(() -> NotFoundException.product(sku));
+            return product.active() ? products.update(product.deactivate()) : product;
+        });
+    }
+
     public Product get(Sku sku) {
         return products.findBySku(sku).orElseThrow(() -> NotFoundException.product(sku));
     }

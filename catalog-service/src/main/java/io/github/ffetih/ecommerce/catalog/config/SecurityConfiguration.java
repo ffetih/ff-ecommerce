@@ -18,6 +18,7 @@ class SecurityConfiguration {
                 .requestMatchers(HttpMethod.GET, "/api/v1/products", "/api/v1/products/*").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/v1/products").hasRole("admin")
                 .requestMatchers(HttpMethod.PUT, "/api/v1/products/*/price").hasRole("admin")
+                .requestMatchers(HttpMethod.POST, "/api/v1/products/*/deactivate").hasRole("admin")
                 .requestMatchers(HttpMethod.GET, "/api/v1/stock/*").hasRole("admin")
                 .requestMatchers(HttpMethod.POST, "/api/v1/stock/*/receipts").hasRole("admin")
                 // Orders reserve stock through events (ADR-0007); the HTTP endpoints are back-office tools.
