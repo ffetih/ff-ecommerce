@@ -21,6 +21,7 @@ and tests that prove what the sprint claims.
 | s00 | Foundation: build, local infrastructure, CI | done |
 | s01 | Catalog & inventory: server-side prices, concurrency-safe stock reservations | done |
 | s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
+| s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -30,6 +31,8 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 | Service | Port | Responsibility |
 | --- | --- | --- |
 | `catalog-service` | 8081 | Products and prices; stock receipts; reserve / commit / release stock per order |
+| `customer-service` | 8082 | Customer accounts with unique, normalized emails; shipping addresses; deactivation |
+| `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle |
 
 ### catalog-service API
 
@@ -49,6 +52,20 @@ Every stock change is published as a `catalog.stock-changed` event on topic `cat
 
 Errors are RFC 9457 problem responses (`application/problem+json`). The API is unauthenticated
 until the security sprint (s05).
+
+### order-service API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/orders` | Place an order; requires an `Idempotency-Key` header (UUID per order attempt) |
+| `GET` | `/api/v1/orders/{orderId}` | One order with its lines and prices |
+| `GET` | `/api/v1/orders?customerId=…` | A customer's orders, newest first |
+
+Placing an order reads the customer and current prices synchronously (2 s connect / 3 s read timeouts),
+then stores the order and an `order.order-placed` event in one transaction. Repeating a request with the
+same key returns the same order (`200`, `Idempotent-Replayed: true`); the same key with a different body
+is a `409`. Unknown or retired products and inactive customers give `422`; an unavailable dependency gives
+`503` with `Retry-After`, and the request can be retried safely with the same key.
 
 ## Messaging
 
