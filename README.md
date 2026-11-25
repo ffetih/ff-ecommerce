@@ -23,6 +23,7 @@ and tests that prove what the sprint claims.
 | s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
+| s05 | Security: Keycloak, OAuth2 resource servers, ownership checks, service-to-service tokens, API gateway | in progress |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -116,7 +117,16 @@ Three levels of tests:
 ## Local infrastructure
 
 ```bash
-docker compose up -d                      # PostgreSQL 17 on :5432, Kafka on :9092
+docker compose up -d --wait               # PostgreSQL 17 on :5432, Kafka on :9092, Keycloak on :8180
 docker compose --profile tools up -d      # adds Kafka UI on http://localhost:8090
 docker compose down                       # stop (add -v to also delete data)
+```
+
+Keycloak runs the `ecommerce` realm from [infra/keycloak](infra/keycloak) (users alice, bob and
+admin; the password is the username). To get and inspect tokens in a terminal:
+
+```bash
+source scripts/dev-auth.sh
+jwt "$(token alice)"                      # claims of alice's access token
+jwt "$(service-token order-service)"      # claims of order-service's machine token
 ```
