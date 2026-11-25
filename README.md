@@ -19,9 +19,32 @@ and tests that prove what the sprint claims.
 | Sprint | Scope | Status |
 | --- | --- | --- |
 | s00 | Foundation: build, local infrastructure, CI | done |
+| s01 | Catalog & inventory: server-side prices, concurrency-safe stock reservations | done |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
+
+## Services
+
+| Service | Port | Responsibility |
+| --- | --- | --- |
+| `catalog-service` | 8081 | Products and prices; stock receipts; reserve / commit / release stock per order |
+
+### catalog-service API
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/v1/products` | Create a product (with an empty stock row) |
+| `GET` | `/api/v1/products?sku=A&sku=B` | Current prices for the given SKUs |
+| `PUT` | `/api/v1/products/{sku}/price` | Change a price |
+| `POST` | `/api/v1/stock/{sku}/receipts` | Goods receipt, idempotent by `referenceId` |
+| `GET` | `/api/v1/stock/{sku}` | `onHand`, `reserved`, `available` |
+| `PUT` | `/api/v1/reservations/{orderId}` | Reserve all order lines or none; idempotent by order id |
+| `POST` | `/api/v1/reservations/{orderId}/commit` | Order shipped: reserved units leave stock |
+| `POST` | `/api/v1/reservations/{orderId}/release` | Order cancelled: reserved units become available |
+
+Errors are RFC 9457 problem responses (`application/problem+json`). The API is unauthenticated
+until the security sprint (s05).
 
 ## Build and test
 
