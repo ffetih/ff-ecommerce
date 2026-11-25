@@ -56,7 +56,7 @@ around the gateway meets the same checks.
 | `POST` | `/api/v1/products/{sku}/deactivate` | Take off sale: new orders are refused, placed ones complete |
 | `POST` | `/api/v1/stock/{sku}/receipts` | Goods receipt, idempotent by `referenceId` |
 | `GET` | `/api/v1/stock/{sku}` | `onHand`, `reserved`, `available` |
-| `PUT` | `/api/v1/reservations/{orderId}` | Reserve all order lines or none; idempotent by order id |
+| `PUT` | `/api/v1/reservations/{orderId}` | Reserve all order lines or none; idempotent by order id, never again after a release |
 | `POST` | `/api/v1/reservations/{orderId}/commit` | Order shipped: reserved units leave stock |
 | `POST` | `/api/v1/reservations/{orderId}/release` | Order cancelled: reserved units become available |
 
