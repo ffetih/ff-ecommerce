@@ -20,6 +20,7 @@
     <description>Order-to-delivery reference implementation with independent services</description>
 
     <modules>
+        <module>test-support</module>
     </modules>
 
     <properties>
