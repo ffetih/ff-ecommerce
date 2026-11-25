@@ -4,7 +4,7 @@ import io.github.ffetih.ecommerce.events.Topics;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
-import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
+import io.github.ffetih.ecommerce.messaging.MessagingTopics;
 import io.github.ffetih.ecommerce.order.application.OrderExpiry;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
@@ -14,14 +14,13 @@ import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.PriceCatalog;
 import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
-import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.KafkaAdmin;
 
 import java.time.Clock;
+import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties({ClientProperties.class, ExpiryProperties.class})
@@ -53,16 +52,9 @@ class OrderConfiguration {
 
     /** Topics order-service writes, reads, and the dead-letter topics of those it reads (idempotent creation). */
     @Bean
-    KafkaAdmin.NewTopics orderTopics() {
-        return new KafkaAdmin.NewTopics(
-                topic(OrderPlaced.TOPIC),
-                topic(StockReserved.TOPIC),
-                topic(DeadLetters.topicFor(StockReserved.TOPIC)),
-                topic(ShipmentDispatched.TOPIC),
-                topic(DeadLetters.topicFor(ShipmentDispatched.TOPIC)));
-    }
-
-    private static NewTopic topic(String name) {
-        return TopicBuilder.name(name).partitions(Topics.PARTITIONS).replicas(1).build();
+    KafkaAdmin.NewTopics orderTopics(MessagingTopics topics) {
+        return topics.declare(Topics.PARTITIONS,
+                List.of(OrderPlaced.TOPIC),
+                List.of(StockReserved.TOPIC, ShipmentDispatched.TOPIC));
     }
 }

@@ -4,6 +4,7 @@ import io.github.ffetih.ecommerce.messaging.inbox.DeadLetterCounter;
 import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
 import io.github.ffetih.ecommerce.messaging.inbox.EventReader;
 import io.github.ffetih.ecommerce.messaging.inbox.Inbox;
+import io.github.ffetih.ecommerce.messaging.inbox.InboxCleanup;
 import io.github.ffetih.ecommerce.messaging.inbox.MalformedEventException;
 import io.github.ffetih.ecommerce.messaging.outbox.Outbox;
 import io.github.ffetih.ecommerce.messaging.outbox.OutboxMetrics;
@@ -62,8 +63,20 @@ public class MessagingAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    Inbox inbox(DataSource dataSource) {
-        return new Inbox(JdbcClient.create(dataSource));
+    Inbox inbox(DataSource dataSource, MessagingProperties properties) {
+        return new Inbox(JdbcClient.create(dataSource), properties.inbox().retention());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    InboxCleanup inboxCleanup(Inbox inbox) {
+        return new InboxCleanup(inbox);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    MessagingTopics messagingTopics(MessagingProperties properties) {
+        return new MessagingTopics(properties.topics());
     }
 
     @Bean

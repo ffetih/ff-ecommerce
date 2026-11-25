@@ -29,13 +29,23 @@ transaction as the business change. `Outbox.append` refuses to run without an ac
 - Failed rows are retried with exponential backoff (capped). They are never dropped: an event that is
   silently lost leaves services permanently inconsistent, whereas a stuck key is visible
   (`attempts`, `last_error`, age of the oldest pending row) and recovers by itself once the cause is fixed.
-- Published rows are deleted after a retention period (default 7 days).
+- Published rows are deleted after a retention period (default 7 days), hourly, in batches of 1000
+  until none are left.
 
 Per-key order equals commit order because writers of one aggregate are serialized by its row lock, so
 the outbox row ids of one key are assigned in commit order.
 
 **Inbox (consumer side).** Delivery is at least once. A consumer records `(consumer, event_id)` in
 `inbox_messages` in the same transaction as its own change, and skips events it has already recorded.
+
+**Retention: the inbox outlives the topic.** An event id may be forgotten only once Kafka can no longer
+deliver the event again. Kafka redelivers more than a retry: a consumer group whose committed offsets
+are lost (they expire while the service is down, or an operator resets them) starts from the oldest
+record still in the topic. So every topic is created with an explicit retention (`MessagingTopics`,
+`ecommerce.messaging.topics.retention`, 7 days; existing topics are updated at startup), the inbox
+keeps ids for 30 days (`ecommerce.messaging.inbox.retention`), and a service whose inbox retention is
+not longer than its topic retention does not start. Dead-letter topics keep records for 30 days, time
+for a person to fix and replay them. An hourly job deletes expired inbox rows in batches.
 
 **Failed consumption.** A record whose processing throws is retried in place a few times with growing
 pauses (0.5 s, 1 s, 2 s), then published to `<topic>-dlt` so the partition can move on. Messages that

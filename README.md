@@ -160,6 +160,7 @@ The `messaging` module gives every service the same guarantees ([ADR-0005](docs/
 - **Ordered relay:** events of one key are published in commit order; relay instances share work with
   `FOR UPDATE SKIP LOCKED`; a failing event blocks only its own key and is retried with backoff.
 - **Inbox:** consumers record processed event ids in their own transaction, so redeliveries have no effect.
+  Ids are kept 30 days, longer than topics keep events (7 days); a shorter setting stops the service.
 - **Dead letters:** failing records are retried briefly, then moved to `<topic>-dlt`; unreadable ones go there immediately.
 - **Metrics:** `outbox.pending`, `outbox.oldest.pending.age` (seconds) and `messaging.dead.letters`
   (by topic and exception), at `/actuator/metrics/<name>` with an `admin` token.

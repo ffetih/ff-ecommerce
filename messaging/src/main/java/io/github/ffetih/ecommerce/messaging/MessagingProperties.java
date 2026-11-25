@@ -10,9 +10,26 @@ import java.time.Duration;
  *
  * @param source  name written into every envelope; defaults to {@code spring.application.name}
  * @param outbox  relay settings
+ * @param topics  settings of the topics a service declares
+ * @param inbox   how long processed event ids are remembered
  */
 @ConfigurationProperties("ecommerce.messaging")
-public record MessagingProperties(String source, @DefaultValue Outbox outbox) {
+public record MessagingProperties(String source, @DefaultValue Outbox outbox, @DefaultValue Topics topics,
+                                  @DefaultValue Inbox inbox) {
+
+    /**
+     * The inbox must remember an event for as long as Kafka can deliver it again. A consumer group
+     * whose offsets are lost (they expire while the service is down, or someone resets them) starts
+     * again from the oldest record in the topic; an event id the inbox has forgotten would then be
+     * processed a second time.
+     */
+    public MessagingProperties {
+        if (inbox.retention().compareTo(topics.retention()) <= 0) {
+            throw new IllegalArgumentException(("ecommerce.messaging.inbox.retention (%s) must be longer than "
+                    + "ecommerce.messaging.topics.retention (%s): events Kafka can still redeliver would be "
+                    + "processed again").formatted(inbox.retention(), topics.retention()));
+        }
+    }
 
     /**
      * @param relayEnabled    run the background relay (tests may disable it and call it directly)
@@ -33,5 +50,21 @@ public record MessagingProperties(String source, @DefaultValue Outbox outbox) {
             @DefaultValue("1s") Duration initialBackoff,
             @DefaultValue("5m") Duration maxBackoff,
             @DefaultValue("7d") Duration retention) {
+    }
+
+    /**
+     * @param retention            how long Kafka keeps events ({@code retention.ms})
+     * @param deadLetterRetention  how long dead letters are kept: long enough for a person to find,
+     *                             fix and replay them
+     */
+    public record Topics(
+            @DefaultValue("7d") Duration retention,
+            @DefaultValue("30d") Duration deadLetterRetention) {
+    }
+
+    /**
+     * @param retention  how long a processed event id is remembered; longer than the topic retention
+     */
+    public record Inbox(@DefaultValue("30d") Duration retention) {
     }
 }

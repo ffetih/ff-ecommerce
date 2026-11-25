@@ -3,6 +3,7 @@ package io.github.ffetih.ecommerce.messaging.inbox;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Duration;
 import java.util.UUID;
 
 /**
@@ -18,13 +19,20 @@ import java.util.UUID;
  * </pre>
  * Two concurrent deliveries of one event cannot both pass: the second insert waits on the primary key
  * until the first transaction ends, and then finds the row.
+ * <p>
+ * Event ids are remembered for the configured retention, which is longer than Kafka keeps the events
+ * ({@code MessagingProperties}); {@link InboxCleanup} forgets older ones.
  */
 public class Inbox {
 
-    private final JdbcClient jdbc;
+    private static final int DELETE_BATCH = 1000;
 
-    public Inbox(JdbcClient jdbc) {
+    private final JdbcClient jdbc;
+    private final Duration retention;
+
+    public Inbox(JdbcClient jdbc, Duration retention) {
         this.jdbc = jdbc;
+        this.retention = retention;
     }
 
     /** Returns {@code true} the first time this consumer sees the event, {@code false} for every redelivery. */
@@ -40,5 +48,25 @@ public class Inbox {
                 .param("eventId", eventId)
                 .update();
         return inserted == 1;
+    }
+
+    /** Forgets event ids processed before the retention period, in short transactions. Returns how many. */
+    public int deleteExpired() {
+        int total = 0;
+        int deleted;
+        do {
+            deleted = jdbc.sql("""
+                            DELETE FROM inbox_messages
+                            WHERE (consumer, event_id) IN (
+                                SELECT consumer, event_id FROM inbox_messages
+                                WHERE processed_at < now() - make_interval(secs => :retentionSeconds)
+                                LIMIT :batch)
+                            """)
+                    .param("retentionSeconds", retention.toSeconds())
+                    .param("batch", DELETE_BATCH)
+                    .update();
+            total += deleted;
+        } while (deleted == DELETE_BATCH);
+        return total;
     }
 }

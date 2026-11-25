@@ -63,6 +63,8 @@ public class OutboxRelay implements SmartLifecycle {
             FOR UPDATE
             """;
 
+    private static final int CLEANUP_BATCH = 1000;
+
     private final JdbcClient jdbc;
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate transactions;
@@ -94,16 +96,27 @@ public class OutboxRelay implements SmartLifecycle {
         return published == null ? 0 : published;
     }
 
-    /** Deletes published rows older than the retention period, in bounded batches. */
+    /** Deletes published rows older than the retention period, in bounded batches until none are left. */
     public int deletePublishedBeforeRetention() {
+        int total = 0;
+        int deleted;
+        do {
+            deleted = deleteOneBatch();
+            total += deleted;
+        } while (deleted == CLEANUP_BATCH);
+        return total;
+    }
+
+    private int deleteOneBatch() {
         return jdbc.sql("""
                         DELETE FROM outbox_messages
                         WHERE id IN (
                             SELECT id FROM outbox_messages
                             WHERE published_at < now() - make_interval(secs => :retentionSeconds)
-                            LIMIT 1000)
+                            LIMIT :batch)
                         """)
                 .param("retentionSeconds", settings.retention().toSeconds())
+                .param("batch", CLEANUP_BATCH)
                 .update();
     }
 
