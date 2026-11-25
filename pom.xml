@@ -24,6 +24,7 @@
         <module>events</module>
         <module>messaging</module>
         <module>catalog-service</module>
+        <module>customer-service</module>
     </modules>
 
     <properties>
