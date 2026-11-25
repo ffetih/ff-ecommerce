@@ -7,8 +7,12 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.persistence.Version;
+import org.springframework.data.domain.Persistable;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -19,7 +23,16 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "customers")
-class CustomerEntity {
+class CustomerEntity implements Persistable<UUID> {
+
+    /**
+     * True for an entity created here, false once stored or loaded. Spring Data then INSERTs a new
+     * customer instead of merging it: a merge would quietly turn a second registration of the same id
+     * into an update of the first, and the primary key could never refuse it.
+     */
+    @Transient
+    private boolean isNew;
+
 
     @Id
     private UUID id;
@@ -50,10 +63,27 @@ class CustomerEntity {
     }
 
     CustomerEntity(Customer customer) {
+        this.isNew = true;
         this.id = customer.id();
         this.email = customer.email().value();
         this.createdAt = customer.createdAt();
         update(customer);
+    }
+
+    @Override
+    public UUID getId() {
+        return id;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostPersist
+    @PostLoad
+    void stored() {
+        isNew = false;
     }
 
     void update(Customer customer) {

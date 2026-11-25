@@ -22,7 +22,8 @@ public class CustomerService {
 
     /**
      * Creates the profile of the person behind an access token. The checks give a clear error in the
-     * common case; the primary key and the unique email still decide when two registrations race.
+     * common case; when two registrations race past them, the insert (never an upsert) meets the
+     * primary key or the unique email, and the loser gets the same 409.
      */
     public Customer register(UUID id, Email email, String fullName, String shippingAddress) {
         Customer customer = Customer.register(id, email, fullName, shippingAddress, clock.instant());
@@ -33,7 +34,7 @@ public class CustomerService {
             if (customers.existsByEmail(email)) {
                 throw new EmailAlreadyRegisteredException(email);
             }
-            customers.save(customer);
+            customers.insert(customer);
             return customer;
         });
     }
@@ -45,7 +46,7 @@ public class CustomerService {
     public Customer changeShippingAddress(UUID id, String newAddress) {
         return transactions.inTransaction(() -> {
             Customer changed = get(id).changeShippingAddress(newAddress, clock.instant());
-            customers.save(changed);
+            customers.update(changed);
             return changed;
         });
     }
@@ -53,7 +54,7 @@ public class CustomerService {
     public Customer deactivate(UUID id) {
         return transactions.inTransaction(() -> {
             Customer deactivated = get(id).deactivate(clock.instant());
-            customers.save(deactivated);
+            customers.update(deactivated);
             return deactivated;
         });
     }
