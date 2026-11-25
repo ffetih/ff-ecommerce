@@ -56,4 +56,4 @@ the `admin` user of the `ecommerce` realm.
 This realm exists for local development and tests. Before it goes anywhere else: remove the
 `ecommerce-dev` client, replace the `order-service` secret (and pass it as
 `ORDER_SERVICE_CLIENT_SECRET`), remove the example users, and use the authorization code flow with
-PKCE for browser clients. See [ADR-0008](../../docs/adr/0008-security.md).
+PKCE for browser clients. See [ADR-0008](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/adr/0008-security.html).
