@@ -4,23 +4,36 @@ import io.github.ffetih.ecommerce.testsupport.Infrastructure;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.context.annotation.Bean;
+import org.testcontainers.kafka.KafkaContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * Starts PostgreSQL for integration tests; {@link ServiceConnection} points the datasource at it.
+ * Starts PostgreSQL and Kafka for integration tests; {@link ServiceConnection} points the datasource
+ * and the Kafka clients at them.
  * <p>
- * The container is a static singleton: test classes with different Spring contexts (for example a
- * mock web environment and a real port) share one database instead of starting one each. Cached
- * contexts are closed when the JVM exits, so the shared instance is stopped only after all tests ran.
+ * The containers are static singletons: test classes with different Spring contexts (for example a
+ * mock web environment and a real port) share them instead of starting their own. Cached contexts
+ * are closed when the JVM exits, so the shared instances stop only after all tests ran.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
-    private static final PostgreSQLContainer POSTGRES = Infrastructure.postgres();
+    static final PostgreSQLContainer POSTGRES = Infrastructure.postgres();
+    static final KafkaContainer KAFKA = Infrastructure.kafka();
 
     @Bean
     @ServiceConnection
     PostgreSQLContainer postgres() {
         return POSTGRES;
+    }
+
+    @Bean
+    @ServiceConnection
+    KafkaContainer kafka() {
+        return KAFKA;
+    }
+
+    public static String kafkaBootstrapServers() {
+        return KAFKA.getBootstrapServers();
     }
 }

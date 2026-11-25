@@ -1,11 +1,13 @@
 package io.github.ffetih.ecommerce.catalog.application;
 
 import io.github.ffetih.ecommerce.catalog.application.port.ReservationRepository;
+import io.github.ffetih.ecommerce.catalog.application.port.StockEvents;
 import io.github.ffetih.ecommerce.catalog.application.port.StockRepository;
 import io.github.ffetih.ecommerce.catalog.application.port.Transactions;
 import io.github.ffetih.ecommerce.catalog.domain.Reservation;
 import io.github.ffetih.ecommerce.catalog.domain.Sku;
 import io.github.ffetih.ecommerce.catalog.domain.StockItem;
+import io.github.ffetih.ecommerce.events.catalog.StockChanged;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -20,20 +22,23 @@ import java.util.function.Function;
  * Holds, ships and releases stock for orders.
  * <p>
  * Every operation locks the affected stock rows in SKU order before reading or changing anything,
- * then re-reads the reservation. Two requests for the same order therefore run one after the other,
+ * then re-reads the reservation. Each stock change is announced with a {@code catalog.stock-changed}
+ * event recorded in the same transaction. Two requests for the same order therefore run one after the other,
  * and the second one sees what the first one committed.
  */
 public class ReservationService {
 
     private final StockRepository stock;
     private final ReservationRepository reservations;
+    private final StockEvents events;
     private final Transactions transactions;
     private final Clock clock;
 
-    public ReservationService(StockRepository stock, ReservationRepository reservations,
+    public ReservationService(StockRepository stock, ReservationRepository reservations, StockEvents events,
                               Transactions transactions, Clock clock) {
         this.stock = stock;
         this.reservations = reservations;
+        this.events = events;
         this.transactions = transactions;
         this.clock = clock;
     }
@@ -59,7 +64,10 @@ public class ReservationService {
             List<StockItem> updated = requested.lines().stream()
                     .map(line -> lockedItem(locked, line.sku()).reserve(line.quantity()))
                     .toList();
-            updated.forEach(stock::save);
+            for (StockItem item : updated) {
+                stock.save(item);
+                events.stockChanged(item, StockChanged.RESERVED, orderId);
+            }
             reservations.save(requested);
             return requested;
         });
@@ -67,12 +75,12 @@ public class ReservationService {
 
     /** The order shipped: reserved units leave the warehouse. */
     public Reservation commit(UUID orderId) {
-        return transition(orderId, reservation -> reservation.commit(now()), StockItem::commit);
+        return transition(orderId, reservation -> reservation.commit(now()), StockItem::commit, StockChanged.COMMITTED);
     }
 
     /** The order was cancelled: reserved units become available again. */
     public Reservation release(UUID orderId) {
-        return transition(orderId, reservation -> reservation.release(now()), StockItem::release);
+        return transition(orderId, reservation -> reservation.release(now()), StockItem::release, StockChanged.RELEASED);
     }
 
     public Reservation get(UUID orderId) {
@@ -82,7 +90,8 @@ public class ReservationService {
 
     private Reservation transition(UUID orderId,
                                    Function<Reservation, Reservation> change,
-                                   BiFunction<StockItem, Integer, StockItem> stockChange) {
+                                   BiFunction<StockItem, Integer, StockItem> stockChange,
+                                   String reason) {
         return transactions.inTransaction(() -> {
             Reservation current = reservations.lockById(orderId)
                     .orElseThrow(() -> NotFoundException.reservation(orderId));
@@ -92,7 +101,9 @@ public class ReservationService {
             }
             Map<Sku, StockItem> locked = stock.lockAll(skusOf(current));
             for (Reservation.Line line : current.lines()) {
-                stock.save(stockChange.apply(lockedItem(locked, line.sku()), line.quantity()));
+                StockItem changed = stockChange.apply(lockedItem(locked, line.sku()), line.quantity());
+                stock.save(changed);
+                events.stockChanged(changed, reason, orderId);
             }
             reservations.save(next);
             return next;
