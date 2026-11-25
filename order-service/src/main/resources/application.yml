@@ -62,3 +62,10 @@ ecommerce:
       base-url: ${CUSTOMER_SERVICE_URL:http://localhost:8082}
     catalog:
       base-url: ${CATALOG_SERVICE_URL:http://localhost:8081}
+  orders:
+    # Orders that wait too long are stopped through the normal cancellation gate (ADR-0007).
+    expiry:
+      placed-after: 30m
+      confirmed-after: 3d
+      scan-interval: 1m
+      batch-size: 100

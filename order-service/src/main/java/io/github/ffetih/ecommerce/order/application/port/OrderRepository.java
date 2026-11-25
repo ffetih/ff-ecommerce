@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.order.application.port;
 
 import io.github.ffetih.ecommerce.order.domain.Order;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -27,4 +28,13 @@ public interface OrderRepository {
     void insert(Order order, UUID idempotencyKey, String requestHash);
 
     void update(Order order);
+
+    /**
+     * Ids of orders that waited too long, oldest first: PLACED and last changed before
+     * {@code placedBefore}, or CONFIRMED and last changed before {@code confirmedBefore}.
+     */
+    List<UUID> findStale(Instant placedBefore, Instant confirmedBefore, int limit);
+
+    /** The order, locked for this transaction; empty if another transaction holds the lock (or it does not exist). */
+    Optional<Order> lockIfFree(UUID orderId);
 }

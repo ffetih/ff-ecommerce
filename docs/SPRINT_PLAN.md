@@ -17,7 +17,7 @@ Each sprint is a vertical slice. A sprint is done when:
 | **s03** | Customer & Order | Multi-line orders priced from the catalog; monotonic order state machine |
 | **s04** | Shipping & Saga | Choreographed order saga with correct compensation and reservation release; end-to-end saga test |
 | **s05** | Security | Keycloak realm as code; every service an OAuth2 resource server with audience checks and enforced deny-by-default; identity and ownership from the token; service-to-service client credentials; routing-only gateway ([ADR-0008](adr/0008-security.md)) |
-| **s06** | Saga hardening | Cancellation as a request that shipping accepts or refuses (closes the cancel/dispatch race); delivery only after dispatch; expiry for reservations that are never shipped; metrics for the oldest unpublished outbox row and dead-lettered records; admin product deactivation; inbox retention longer than topic retention |
+| **s06** | Saga hardening | Cancellation as a request that shipping accepts or refuses (closes the cancel/dispatch race); delivery only after dispatch; order expiry for orders that are never confirmed or dispatched; metrics for the oldest unpublished outbox row and dead-lettered records; admin product deactivation; inbox retention longer than topic retention |
 | **s07** | Payments | Authorize / capture / refund with idempotency keys and a double-entry ledger; payment step in the order flow, re-evaluating orchestration vs. choreography (ADR-0007) |
 | **s08** | Returns | Concurrency-safe return limits; refunds through payments |
 | **s09** | Observability | Metrics, distributed tracing, dashboards, alerts |

@@ -5,6 +5,7 @@ import io.github.ffetih.ecommerce.events.catalog.StockReserved;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.inbox.DeadLetters;
+import io.github.ffetih.ecommerce.order.application.OrderExpiry;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.port.CustomerDirectory;
@@ -23,7 +24,7 @@ import org.springframework.kafka.core.KafkaAdmin;
 import java.time.Clock;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties(ClientProperties.class)
+@EnableConfigurationProperties({ClientProperties.class, ExpiryProperties.class})
 class OrderConfiguration {
 
     @Bean
@@ -41,6 +42,13 @@ class OrderConfiguration {
     OrderSagaService orderSagaService(OrderRepository orders, OrderEvents events, ProcessedEvents processedEvents,
                                       Transactions transactions, Clock clock) {
         return new OrderSagaService(orders, events, processedEvents, transactions, clock);
+    }
+
+    @Bean
+    OrderExpiry orderExpiry(OrderRepository orders, OrderEvents events, Transactions transactions,
+                            ExpiryProperties properties) {
+        return new OrderExpiry(orders, events, transactions, new OrderExpiry.Settings(
+                properties.placedAfter(), properties.confirmedAfter(), properties.batchSize()));
     }
 
     /** Topics order-service writes, reads, and the dead-letter topics of those it reads (idempotent creation). */

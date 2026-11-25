@@ -7,6 +7,7 @@ import io.github.ffetih.ecommerce.order.domain.Order;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -56,5 +57,15 @@ class OrderPersistenceAdapter implements OrderRepository {
     public void update(Order order) {
         OrderEntity entity = repository.findById(order.id()).orElseThrow(() -> new OrderNotFoundException(order.id()));
         entity.update(order);
+    }
+
+    @Override
+    public List<UUID> findStale(Instant placedBefore, Instant confirmedBefore, int limit) {
+        return repository.findStaleIds(placedBefore, confirmedBefore, limit);
+    }
+
+    @Override
+    public Optional<Order> lockIfFree(UUID orderId) {
+        return repository.lockIfFree(orderId).map(OrderEntity::toDomain);
     }
 }

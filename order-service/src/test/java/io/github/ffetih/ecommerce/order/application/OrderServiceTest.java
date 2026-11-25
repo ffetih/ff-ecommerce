@@ -213,6 +213,21 @@ class OrderServiceTest {
         public void update(Order order) {
             byId.put(order.id(), order);
         }
+
+        @Override
+        public List<UUID> findStale(Instant placedBefore, Instant confirmedBefore, int limit) {
+            return byId.values().stream()
+                    .filter(o -> (o.status() == Order.Status.PLACED && o.updatedAt().isBefore(placedBefore))
+                            || (o.status() == Order.Status.CONFIRMED && o.updatedAt().isBefore(confirmedBefore)))
+                    .map(Order::id)
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public Optional<Order> lockIfFree(UUID orderId) {
+            return findById(orderId);
+        }
     }
 
     static final class FakeCustomers implements CustomerDirectory {

@@ -53,6 +53,8 @@ so the events of one order are consumed in order within each topic.
 | `stock-reserved` arrives for an order that was cancelled meanwhile | Order publishes `order-cancelled` again so catalog releases the late reservation. |
 | Shipment already dispatched | Shipping answers `cancellation-refused`. The dispatch precedes the refusal on the topic, so the order is already SHIPPED and stays so. Afterwards it can only become a return (s08). |
 | `shipment-delivered` arrives for an order that was never shipped | Refused, so it goes to the dead-letter topic next to the dispatch it depends on (which can only be missing because it was dead-lettered itself). Accepting it would show a delivered order whose stock was never committed. |
+| A placed order is not confirmed within 30 minutes | Order expiry cancels it ("Not confirmed in time") and announces `order-cancelled`, so catalog releases whatever it reserved. |
+| A confirmed order is not dispatched within 3 days | Order expiry requests its cancellation ("Not dispatched in time"); from there it is the customer-cancel path above, so shipping still decides. |
 
 **Business failures are results, not exceptions.** A participant that fails a step for a business
 reason (insufficient stock) records the failure event in the *same* transaction as its inbox entry and
@@ -73,6 +75,21 @@ first one's outcome. Every interleaving ends in one of two consistent states, ca
 released or shipped with the stock committed; `CancellationRaceIT` and `CancellationRaceE2EIT` repeat
 the race to show it. The cost is one more round trip and a state the customer can see: cancelling a
 confirmed order answers 202, and the outcome follows.
+
+**Orders that stop moving expire.** An event that ends in a dead-letter topic halts its order: a
+placed order whose `stock-reserved` never arrives keeps its reservation, and a confirmed order nobody
+dispatches holds stock forever. Order-service therefore scans for orders that have stayed PLACED or
+CONFIRMED too long (`ecommerce.orders.expiry`, 30 minutes and 3 days by default, measured from the
+order's last change) and stops them through the same gate a customer uses: a placed order is cancelled,
+a confirmed one is asked to cancel, so expiry can never overtake a dispatch. CANCELLATION_REQUESTED has
+no timer; it waits for shipping's answer. Each order is expired in its own transaction and locked with
+`FOR UPDATE SKIP LOCKED`, so several instances can scan at once without expiring an order twice
+(`OrderExpiryIT`).
+
+Expiry hides the cause. An order cancelled "Not confirmed in time" looks like a normal timeout while
+its `stock-reserved` sits in a dead-letter topic, so expiry is only safe together with the dead-letter
+metric (s06-4): the metric says that something broke, expiry keeps the stock from staying locked
+meanwhile.
 
 ## Consequences
 

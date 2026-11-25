@@ -36,7 +36,12 @@ public class TestcontainersConfiguration {
 
     @Bean
     DynamicPropertyRegistrar tokenIssuer() {
-        return registry -> registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TOKENS::issuerUri);
+        return registry -> {
+            registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TOKENS::issuerUri);
+            // No background expiry scans in tests: they would change orders other tests are watching.
+            // OrderExpiryIT calls the expiry directly, with a time of its choosing.
+            registry.add("ecommerce.orders.expiry.enabled", () -> "false");
+        };
     }
 
     public static TestTokenIssuer tokens() {

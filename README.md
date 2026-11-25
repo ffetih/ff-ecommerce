@@ -25,7 +25,7 @@ and tests that prove what the sprint claims.
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
 | s05 | Security: Keycloak, OAuth2 resource servers with enforced deny-by-default, identity and ownership from the token, service-to-service tokens, routing-only gateway | done |
-| s06 | Saga hardening: cancellation decided by shipping, delivery only after dispatch, reservation expiry, outbox and dead-letter metrics, product deactivation, inbox retention | in progress |
+| s06 | Saga hardening: cancellation decided by shipping, delivery only after dispatch, order expiry, outbox and dead-letter metrics, product deactivation, inbox retention | in progress |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
