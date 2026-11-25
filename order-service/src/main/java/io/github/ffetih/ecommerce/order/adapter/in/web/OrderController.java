@@ -1,5 +1,6 @@
 package io.github.ffetih.ecommerce.order.adapter.in.web;
 
+import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.PlaceOrderCommand;
 import io.github.ffetih.ecommerce.order.domain.Order;
@@ -33,9 +34,11 @@ class OrderController {
     static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
     private final OrderService orders;
+    private final OrderSagaService saga;
 
-    OrderController(OrderService orders) {
+    OrderController(OrderService orders, OrderSagaService saga) {
         this.orders = orders;
+        this.saga = saga;
     }
 
     /**
@@ -66,6 +69,15 @@ class OrderController {
     @GetMapping
     List<OrderResponse> forCustomer(@RequestParam UUID customerId) {
         return orders.forCustomer(customerId).stream().map(OrderResponse::from).toList();
+    }
+
+    /** Possible until the parcel is dispatched; afterwards {@code 409}. Repeating it changes nothing. */
+    @PostMapping("/{orderId}/cancel")
+    OrderResponse cancel(@PathVariable UUID orderId, @Valid @RequestBody CancelRequest request) {
+        return OrderResponse.from(saga.cancelByCustomer(orderId, request.reason()));
+    }
+
+    record CancelRequest(@NotBlank @Size(max = 500) String reason) {
     }
 
     record PlaceOrderRequest(

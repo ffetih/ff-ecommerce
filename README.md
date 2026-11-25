@@ -22,6 +22,7 @@ and tests that prove what the sprint claims.
 | s01 | Catalog & inventory: server-side prices, concurrency-safe stock reservations | done |
 | s02 | Messaging: transactional outbox with ordered relay, consumer inbox, dead-letter topics | done |
 | s03 | Customers and orders: catalog-priced, idempotent order placement; forward-only order status | done |
+| s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
 
 See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 [docs/adr](docs/adr) for architecture decisions.
@@ -33,6 +34,7 @@ See [docs/SPRINT_PLAN.md](docs/SPRINT_PLAN.md) for the full roadmap and
 | `catalog-service` | 8081 | Products and prices; stock receipts; reserve / commit / release stock per order |
 | `customer-service` | 8082 | Customer accounts with unique, normalized emails; shipping addresses; deactivation |
 | `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle |
+| `shipping-service` | 8084 | One shipment per confirmed order; dispatch and delivery; cancellation before dispatch |
 
 ### catalog-service API
 
@@ -67,6 +69,20 @@ same key returns the same order (`200`, `Idempotent-Replayed: true`); the same k
 is a `409`. Unknown or retired products and inactive customers give `422`; an unavailable dependency gives
 `503` with `Retry-After`, and the request can be retried safely with the same key.
 
+## Order saga
+
+Fulfilment is a choreographed saga across order, catalog and shipping ([ADR-0007](docs/adr/0007-order-saga.md)):
+
+```
+order-placed ──► catalog reserves ──► stock-reserved ──► order CONFIRMED ──► order-confirmed ──► shipment created
+                         └──────────► reservation-failed ──► order CANCELLED
+shipment dispatched ──► catalog commits stock, order SHIPPED ──► shipment delivered ──► order DELIVERED
+customer cancels (before dispatch) ──► order-cancelled ──► catalog releases stock, shipping cancels the shipment
+```
+
+Business failures (not enough stock) are published as events in the same transaction as the inbox entry;
+only technical failures roll back and are retried or dead-lettered ([ADR-0004](docs/adr/0004-explicit-transaction-boundaries.md)).
+
 ## Messaging
 
 The `messaging` module gives every service the same guarantees ([ADR-0005](docs/adr/0005-transactional-outbox-and-inbox.md),
@@ -84,9 +100,18 @@ The `messaging` module gives every service the same guarantees ([ADR-0005](docs/
 Requires JDK 25 and Docker.
 
 ```bash
-./mvnw verify          # unit tests (*Test) + integration tests against real containers (*IT)
-./mvnw test            # unit tests only
+./mvnw verify                        # everything: unit, integration and end-to-end tests
+./mvnw test                          # unit tests only
+./mvnw verify -pl '!e2e-tests'       # skip the end-to-end tests
 ```
+
+Three levels of tests:
+
+- **Unit** (`*Test`): domain rules and application services with in-memory fakes; milliseconds.
+- **Integration** (`*IT`): one service with real PostgreSQL and Kafka (Testcontainers); other services
+  are played by the test, either as stub HTTP servers or by publishing their events.
+- **End-to-end** (`e2e-tests`): the packaged services run as separate processes against shared containers,
+  and the tests drive the whole saga through the public HTTP APIs only.
 
 ## Local infrastructure
 
