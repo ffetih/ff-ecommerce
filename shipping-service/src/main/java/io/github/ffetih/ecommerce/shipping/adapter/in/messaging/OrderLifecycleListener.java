@@ -1,5 +1,6 @@
 package io.github.ffetih.ecommerce.shipping.adapter.in.messaging;
 
+import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
@@ -31,6 +32,8 @@ class OrderLifecycleListener {
                         confirmed.lines().stream().map(line -> new ShipmentLine(line.sku(), line.quantity())).toList(),
                         confirmed.shippingAddress());
             }
+            case OrderCancellationRequested.TYPE -> shipping.cancellationRequested(
+                    event.eventId(), reader.data(event, OrderCancellationRequested.class).orderId());
             case OrderCancelled.TYPE -> shipping.orderCancelled(
                     event.eventId(), reader.data(event, OrderCancelled.class).orderId());
             default -> {

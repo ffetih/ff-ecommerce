@@ -59,9 +59,46 @@ public class ShippingService {
     }
 
     /**
-     * {@code order.order-cancelled}: stop the parcel if it has not left. If it has, this is the
-     * cancel-versus-dispatch race described in ADR-0007; the shipment stays dispatched and the
-     * conflict surfaces when catalog and order-service refuse the dispatch event.
+     * {@code order.cancellation-requested}: decide, as the owner of the point of no return (ADR-0007).
+     * <ul>
+     *   <li>not dispatched: cancel the shipment and answer {@code shipment-cancelled};</li>
+     *   <li>dispatched or delivered: answer {@code cancellation-refused}.</li>
+     * </ul>
+     * A dispatch of the same shipment at the same moment is settled by the shipment's version: one of
+     * the two transactions fails and is repeated (the HTTP dispatch as a 409 to the warehouse, this
+     * event by the Kafka error handler), and then sees the other's outcome.
+     */
+    public void cancellationRequested(UUID eventId, UUID orderId) {
+        transactions.inTransaction(() -> {
+            if (!processedEvents.firstDelivery(ORDER_EVENTS_CONSUMER, eventId)) {
+                return null;
+            }
+            Optional<Shipment> shipment = shipments.findByOrderId(orderId);
+            if (shipment.isEmpty()) {
+                // Only possible if order-confirmed never got here (dead-lettered): nothing can leave.
+                log.log(System.Logger.Level.WARNING, "Cancellation requested for order {0} without a shipment", orderId);
+                events.cancelled(orderId, null);
+                return null;
+            }
+            Shipment current = shipment.get();
+            if (current.isDispatched()) {
+                events.cancellationRefused(current, "Shipment " + current.id() + " has already been dispatched");
+                return null;
+            }
+            Shipment cancelled = current.cancel(clock.instant());
+            if (cancelled != current) {
+                shipments.save(cancelled);
+            }
+            events.cancelled(orderId, current.id());
+            return null;
+        });
+    }
+
+    /**
+     * {@code order.order-cancelled}: the final cancellation. For a confirmed order, shipping has already
+     * cancelled the shipment when it accepted the request, so this changes nothing; an order cancelled
+     * before confirmation never had a shipment. A dispatched shipment here would mean the order was
+     * cancelled without asking shipping, which the order flow no longer does.
      */
     public void orderCancelled(UUID eventId, UUID orderId) {
         transactions.inTransaction(() -> {
@@ -70,7 +107,7 @@ public class ShippingService {
             }
             Optional<Shipment> shipment = shipments.findByOrderId(orderId);
             if (shipment.isEmpty()) {
-                return null; // cancelled before confirmation: nothing was prepared
+                return null;
             }
             if (shipment.get().isDispatched()) {
                 log.log(System.Logger.Level.WARNING,

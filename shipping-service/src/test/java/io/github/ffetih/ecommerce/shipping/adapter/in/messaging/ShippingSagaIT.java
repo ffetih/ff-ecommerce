@@ -1,8 +1,11 @@
 package io.github.ffetih.ecommerce.shipping.adapter.in.messaging;
 
+import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.shipping.CancellationRefused;
+import io.github.ffetih.ecommerce.events.shipping.ShipmentCancelled;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
@@ -105,6 +108,46 @@ class ShippingSagaIT {
         awaitUntil(() -> inboxContains(cancellation));
 
         assertThat(shipping.forOrder(orderId).status()).isEqualTo(Shipment.Status.DISPATCHED);
+    }
+
+    @Test
+    void aCancellationRequestBeforeDispatchCancelsTheShipmentAndAcceptsTheRequest() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        publishOrderConfirmed(UUID.randomUUID(), orderId);
+        awaitUntil(() -> shipmentExists(orderId));
+
+        publish(orderId, OrderCancellationRequested.TYPE, new OrderCancellationRequested(orderId, "changed my mind"),
+                UUID.randomUUID());
+
+        assertThat(shipmentEventTypes(orderId, 1)).containsExactly(ShipmentCancelled.TYPE);
+        assertThat(shipping.forOrder(orderId).status()).isEqualTo(Shipment.Status.CANCELLED);
+        UUID shipmentId = shipping.forOrder(orderId).id();
+        assertThatThrownBy(() -> shipping.dispatch(shipmentId)).isInstanceOf(IllegalShipmentTransitionException.class);
+    }
+
+    @Test
+    void aCancellationRequestAfterDispatchIsRefused() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        publishOrderConfirmed(UUID.randomUUID(), orderId);
+        awaitUntil(() -> shipmentExists(orderId));
+        shipping.dispatch(shipping.forOrder(orderId).id());
+
+        publish(orderId, OrderCancellationRequested.TYPE, new OrderCancellationRequested(orderId, "too late"),
+                UUID.randomUUID());
+
+        // The refusal follows the dispatch on the same partition, so order-service sees them in this order.
+        assertThat(shipmentEventTypes(orderId, 2)).containsExactly(ShipmentDispatched.TYPE, CancellationRefused.TYPE);
+        assertThat(shipping.forOrder(orderId).status()).isEqualTo(Shipment.Status.DISPATCHED);
+    }
+
+    @Test
+    void aCancellationRequestForAnOrderWithoutShipmentIsAccepted() throws Exception {
+        UUID orderId = UUID.randomUUID();
+
+        publish(orderId, OrderCancellationRequested.TYPE, new OrderCancellationRequested(orderId, "never confirmed here"),
+                UUID.randomUUID());
+
+        assertThat(shipmentEventTypes(orderId, 1)).containsExactly(ShipmentCancelled.TYPE);
     }
 
     // --- helpers -----------------------------------------------------------------------------
