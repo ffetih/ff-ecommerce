@@ -2,6 +2,8 @@ package io.github.ffetih.ecommerce.messaging.inbox;
 
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import io.github.ffetih.ecommerce.messaging.MessagingTestcontainers;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.Test;
@@ -52,6 +54,9 @@ class InboxIT {
 
     @Autowired
     RecordingConsumer consumer;
+
+    @Autowired
+    MeterRegistry meters;
 
     record Step(int failTimes) {
     }
@@ -139,6 +144,7 @@ class InboxIT {
     void malformedMessageGoesToTheDeadLetterTopicAndTheNextMessageIsProcessed() throws Exception {
         String poison = "this is not json " + UUID.randomUUID();
         UUID next = UUID.randomUUID();
+        double counted = deadLettersCounted("MalformedEventException");
 
         kafka.send(TOPIC, "k", poison).get();
         kafka.send(TOPIC, "k", envelope(next, 0)).get();
@@ -153,6 +159,7 @@ class InboxIT {
         String reason = header(deadLetter, "kafka_dlt-exception-fqcn") + " " + header(deadLetter, "kafka_dlt-exception-cause-fqcn");
         assertThat(reason).contains("MalformedEventException");
         assertThat(header(deadLetter, "kafka_dlt-original-topic")).isEqualTo(TOPIC);
+        assertThat(deadLettersCounted("MalformedEventException")).isEqualTo(counted + 1);
     }
 
     @Test
@@ -173,6 +180,11 @@ class InboxIT {
     private int effects(UUID eventId) {
         return jdbc.sql("SELECT count(*) FROM it_effects WHERE event_id = :id")
                 .param("id", eventId).query(Integer.class).single();
+    }
+
+    private double deadLettersCounted(String exception) {
+        Counter counter = meters.find(DeadLetterCounter.METRIC).tag("topic", TOPIC).tag("exception", exception).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private static void awaitUntil(Duration timeout, BooleanSupplier condition) throws InterruptedException {

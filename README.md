@@ -160,6 +160,8 @@ The `messaging` module gives every service the same guarantees ([ADR-0005](docs/
   `FOR UPDATE SKIP LOCKED`; a failing event blocks only its own key and is retried with backoff.
 - **Inbox:** consumers record processed event ids in their own transaction, so redeliveries have no effect.
 - **Dead letters:** failing records are retried briefly, then moved to `<topic>-dlt`; unreadable ones go there immediately.
+- **Metrics:** `outbox.pending`, `outbox.oldest.pending.age` (seconds) and `messaging.dead.letters`
+  (by topic and exception), at `/actuator/metrics/<name>` with an `admin` token.
 
 ## Build and test
 

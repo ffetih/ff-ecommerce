@@ -34,6 +34,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- the metrics endpoint, to test who may read it -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>io.github.ffetih.ecommerce</groupId>
             <artifactId>test-support</artifactId>
             <version>${project.version}</version>

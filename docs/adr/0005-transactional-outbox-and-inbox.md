@@ -45,6 +45,19 @@ with at least as many partitions as their source; if publishing to one fails, th
 rather than skipped, so the partition stops until the topic is fixed. Values are read as strings through `ErrorHandlingDeserializer`, so even
 undecodable bytes reach the error handler instead of failing inside the consumer's poll loop.
 
+**Monitoring.** Both failure modes are silent unless measured, so the module reports them through
+Micrometer in every service that uses it:
+
+| Metric | Kind | Healthy | Worth an alert |
+| --- | --- | --- | --- |
+| `outbox.pending` | gauge, messages | close to 0 | keeps growing |
+| `outbox.oldest.pending.age` | gauge, seconds | about a second | over a minute: a key is stuck or Kafka is unreachable |
+| `messaging.dead.letters{topic, exception}` | counter | absent or flat | any increase: a step of some flow did not happen |
+
+The gauges are read from the database when metrics are collected, with the database clock; a failed
+read shows as NaN, not as 0. A dead letter is counted only after the dead-letter topic has taken it.
+The endpoint `/actuator/metrics` needs the `admin` role (ADR-0008).
+
 **Schema.** The DDL lives in `messaging/src/main/resources/messaging-schema.sql`; each service copies it
 into its own Flyway migration, keeping full ownership of its schema.
 
@@ -53,7 +66,7 @@ into its own Flyway migration, keeping full ownership of its schema.
 - No distributed transaction is needed, and no event is lost or reordered per key.
 - Consumers must be idempotent; the inbox makes that a one-line check.
 - One poisoned event blocks its own key until fixed. This is deliberate and needs monitoring: the age
-  of the oldest unpublished row and the dead-letter count arrive in s06, dashboards and alerts in s09.
+  of the oldest unpublished row and the dead-letter count (see Monitoring); dashboards and alerts follow in s09.
 - Events are delivered with a small delay (the poll interval).
 
 ## Alternatives considered

@@ -5,3 +5,9 @@ spring:
         jwt:
           # issuer-uri comes from the test token issuer (see ResourceServerIT)
           audiences: test-service
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics

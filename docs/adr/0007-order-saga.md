@@ -88,7 +88,7 @@ no timer; it waits for shipping's answer. Each order is expired in its own trans
 
 Expiry hides the cause. An order cancelled "Not confirmed in time" looks like a normal timeout while
 its `stock-reserved` sits in a dead-letter topic, so expiry is only safe together with the dead-letter
-metric (s06-4): the metric says that something broke, expiry keeps the stock from staying locked
+metric (`messaging.dead.letters`, ADR-0005): the metric says that something broke, expiry keeps the stock from staying locked
 meanwhile.
 
 ## Consequences
