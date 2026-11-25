@@ -52,6 +52,8 @@ so the events of one order are consumed in order within each topic.
 | Customer cancels a confirmed order | `cancellation-requested`. Shipping cancels the shipment if it has not left and answers `shipment-cancelled`; only then does the order become CANCELLED and announce `order-cancelled`, so catalog releases. |
 | `stock-reserved` arrives for an order that was cancelled meanwhile | Order publishes `order-cancelled` again so catalog releases the late reservation. |
 | Shipment already dispatched | Shipping answers `cancellation-refused`. The dispatch precedes the refusal on the topic, so the order is already SHIPPED and stays so. Afterwards it can only become a return (s08). |
+| `order-confirmed` arrives after shipping accepted the order's cancellation without a shipment (a dead letter replayed late) | Shipping remembers such orders (`cancelled_orders`) and creates no shipment: the stock is already released. |
+| `order-placed` arrives again after the reservation was released | Catalog answers `reservation-failed` instead of claiming the stock again; the cancelled order ignores it. |
 | `shipment-delivered` arrives for an order that was never shipped | Refused, so it goes to the dead-letter topic next to the dispatch it depends on (which can only be missing because it was dead-lettered itself). Accepting it would show a delivered order whose stock was never committed. |
 | A placed order is not confirmed within 30 minutes | Order expiry cancels it ("Not confirmed in time") and announces `order-cancelled`, so catalog releases whatever it reserved. |
 | A confirmed order is not dispatched within 3 days | Order expiry requests its cancellation ("Not dispatched in time"); from there it is the customer-cancel path above, so shipping still decides. |

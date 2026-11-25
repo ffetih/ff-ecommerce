@@ -1,5 +1,6 @@
 package io.github.ffetih.ecommerce.shipping.application;
 
+import io.github.ffetih.ecommerce.shipping.application.port.CancelledOrders;
 import io.github.ffetih.ecommerce.shipping.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.shipping.application.port.ShipmentEvents;
 import io.github.ffetih.ecommerce.shipping.application.port.ShipmentRepository;
@@ -25,30 +26,42 @@ public class ShippingService {
     private final ShipmentRepository shipments;
     private final ShipmentEvents events;
     private final ProcessedEvents processedEvents;
+    private final CancelledOrders cancelledOrders;
     private final Transactions transactions;
     private final Clock clock;
     private final Supplier<String> trackingNumbers;
 
     public ShippingService(ShipmentRepository shipments, ShipmentEvents events, ProcessedEvents processedEvents,
-                           Transactions transactions, Clock clock) {
-        this(shipments, events, processedEvents, transactions, clock,
+                           CancelledOrders cancelledOrders, Transactions transactions, Clock clock) {
+        this(shipments, events, processedEvents, cancelledOrders, transactions, clock,
                 () -> "TRK-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT));
     }
 
     ShippingService(ShipmentRepository shipments, ShipmentEvents events, ProcessedEvents processedEvents,
-                    Transactions transactions, Clock clock, Supplier<String> trackingNumbers) {
+                    CancelledOrders cancelledOrders, Transactions transactions, Clock clock,
+                    Supplier<String> trackingNumbers) {
         this.shipments = shipments;
         this.events = events;
         this.processedEvents = processedEvents;
+        this.cancelledOrders = cancelledOrders;
         this.transactions = transactions;
         this.clock = clock;
         this.trackingNumbers = trackingNumbers;
     }
 
-    /** {@code order.order-confirmed}: prepare a parcel. At most one shipment per order. */
+    /**
+     * {@code order.order-confirmed}: prepare a parcel. At most one shipment per order, and none for an
+     * order whose cancellation shipping has already accepted: that confirmation is late (typically
+     * replayed from a dead-letter topic) and the order's stock is already released.
+     */
     public void orderConfirmed(UUID eventId, UUID orderId, UUID customerId, List<ShipmentLine> lines, String address) {
         transactions.inTransaction(() -> {
             if (!processedEvents.firstDelivery(ORDER_EVENTS_CONSUMER, eventId)) {
+                return null;
+            }
+            if (cancelledOrders.contains(orderId)) {
+                log.log(System.Logger.Level.WARNING,
+                        "Order {0} was confirmed after shipping accepted its cancellation; no shipment created", orderId);
                 return null;
             }
             if (shipments.findByOrderId(orderId).isEmpty()) {
@@ -76,7 +89,9 @@ public class ShippingService {
             Optional<Shipment> shipment = shipments.findByOrderId(orderId);
             if (shipment.isEmpty()) {
                 // Only possible if order-confirmed never got here (dead-lettered): nothing can leave.
+                // Remember the answer, so that confirmation cannot create a shipment if it is replayed.
                 log.log(System.Logger.Level.WARNING, "Cancellation requested for order {0} without a shipment", orderId);
+                cancelledOrders.record(orderId, clock.instant());
                 events.cancelled(orderId, null);
                 return null;
             }

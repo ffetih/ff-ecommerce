@@ -5,6 +5,7 @@ import io.github.ffetih.ecommerce.events.order.OrderPlaced;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.MessagingTopics;
 import io.github.ffetih.ecommerce.shipping.application.ShippingService;
+import io.github.ffetih.ecommerce.shipping.application.port.CancelledOrders;
 import io.github.ffetih.ecommerce.shipping.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.shipping.application.port.ShipmentEvents;
 import io.github.ffetih.ecommerce.shipping.application.port.ShipmentRepository;
@@ -26,8 +27,8 @@ class ShippingConfiguration {
 
     @Bean
     ShippingService shippingService(ShipmentRepository shipments, ShipmentEvents events, ProcessedEvents processedEvents,
-                                    Transactions transactions, Clock clock) {
-        return new ShippingService(shipments, events, processedEvents, transactions, clock);
+                                    CancelledOrders cancelledOrders, Transactions transactions, Clock clock) {
+        return new ShippingService(shipments, events, processedEvents, cancelledOrders, transactions, clock);
     }
 
     @Bean

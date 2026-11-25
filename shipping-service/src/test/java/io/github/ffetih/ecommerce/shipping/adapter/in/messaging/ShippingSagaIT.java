@@ -150,6 +150,25 @@ class ShippingSagaIT {
         assertThat(shipmentEventTypes(orderId, 1)).containsExactly(ShipmentCancelled.TYPE);
     }
 
+    /**
+     * The order's confirmation was dead-lettered, shipping accepted the cancellation without a shipment,
+     * and the order is gone. Then someone replays the dead letter. It must not start a parcel for an
+     * order whose stock is already released.
+     */
+    @Test
+    void aConfirmationReplayedAfterAnAcceptedCancellationCreatesNoShipment() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        publish(orderId, OrderCancellationRequested.TYPE, new OrderCancellationRequested(orderId, "not dispatched in time"),
+                UUID.randomUUID());
+        assertThat(shipmentEventTypes(orderId, 1)).containsExactly(ShipmentCancelled.TYPE);
+
+        UUID replayed = UUID.randomUUID();
+        publishOrderConfirmed(replayed, orderId);
+
+        awaitUntil(() -> inboxContains(replayed)); // handled, in the same transaction as any shipment
+        assertThat(shipmentExists(orderId)).isFalse();
+    }
+
     // --- helpers -----------------------------------------------------------------------------
 
     private void publishOrderConfirmed(UUID eventId, UUID orderId) throws Exception {
