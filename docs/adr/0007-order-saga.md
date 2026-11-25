@@ -29,9 +29,15 @@ SHIPPED   ◄──────────────────────�
                                                     deliver ───► shipment-delivered
 DELIVERED ◄──────────────────────────────────────────────────────┘
 
-customer cancels (PLACED or CONFIRMED):
-order-cancelled ───► release reservation (if any)
-                └──────────────────────────────────► cancel shipment (if not dispatched)
+customer cancels a PLACED order (no shipment yet): order decides alone
+CANCELLED, order-cancelled ───► release reservation (if any)
+
+customer cancels a CONFIRMED order: shipping decides
+CANCELLATION_REQUESTED, cancellation-requested ──────────► shipment not dispatched?
+                                                    ├─ yes: cancel it ──► shipment-cancelled
+CANCELLED, order-cancelled ◄──────────────────────────────────────────────┘
+          └──► release reservation                  └─ no:  ──► cancellation-refused
+SHIPPED (dispatch came first) ◄───────────────────────────────────────────┘
 ```
 
 Topics and keys: `order.lifecycle`, `catalog.reservations`, `shipping.shipments`, all keyed by order id,
@@ -42,9 +48,10 @@ so the events of one order are consumed in order within each topic.
 | Situation | Compensation |
 | --- | --- |
 | Stock cannot be reserved | Catalog publishes `reservation-failed`; order is cancelled. Nothing was held. |
-| Customer cancels a confirmed order | `order-cancelled`; catalog releases, shipping cancels the not-yet-dispatched shipment. |
+| Customer cancels a placed order | `order-cancelled`; catalog releases whatever it reserved. No shipment exists yet. |
+| Customer cancels a confirmed order | `cancellation-requested`. Shipping cancels the shipment if it has not left and answers `shipment-cancelled`; only then does the order become CANCELLED and announce `order-cancelled`, so catalog releases. |
 | `stock-reserved` arrives for an order that was cancelled meanwhile | Order publishes `order-cancelled` again so catalog releases the late reservation. |
-| Shipment already dispatched | The order cannot be cancelled any more; it becomes a return (later sprint). |
+| Shipment already dispatched | Shipping answers `cancellation-refused`. The dispatch precedes the refusal on the topic, so the order is already SHIPPED and stays so. Afterwards it can only become a return (s08). |
 | `shipment-delivered` arrives for an order that was never shipped | Refused, so it goes to the dead-letter topic next to the dispatch it depends on (which can only be missing because it was dead-lettered itself). Accepting it would show a delivered order whose stock was never committed. |
 
 **Business failures are results, not exceptions.** A participant that fails a step for a business
@@ -53,13 +60,19 @@ commits. Exceptions are reserved for technical failures, which roll everything b
 dead-lettered. This is the rule that would have prevented the previous version's lost compensation
 (ADR-0004).
 
-**Known limitation: cancel versus dispatch.** Dispatch is the saga's point of no return. If a customer
-cancels a confirmed order at the same moment the warehouse dispatches it, order-service has already
-accepted the cancellation while the parcel is on its way. Catalog and order-service then receive
-`shipment-dispatched` for a released reservation and a cancelled order; both refuse it, and the event lands
-in the dead-letter topic where it is visible for manual handling (a return). The proper fix is to make
-cancellation of a confirmed order a *request* that shipping accepts or rejects before order-service
-commits to it. It is scheduled for s06 (saga hardening), before payments make the gap a financial one.
+**Cancellation of a confirmed order is a request; shipping decides.** Dispatch is the saga's point of
+no return, and shipping owns it. Until s06 order-service cancelled on its own and informed the others:
+if the warehouse dispatched at the same moment, the order was cancelled and its stock released while
+the parcel was on its way, and the dispatch event ended in a dead-letter topic. Now a confirmed order
+asks (CANCELLATION_REQUESTED), and the party that knows whether the parcel has left answers.
+
+Inside shipping, a dispatch and a cancellation request for the same shipment are settled by the
+shipment's version (optimistic locking): one transaction commits, the other fails and is repeated (the
+HTTP dispatch as a 409 to the warehouse, the request by the Kafka error handler), and then sees the
+first one's outcome. Every interleaving ends in one of two consistent states, cancelled with the stock
+released or shipped with the stock committed; `CancellationRaceIT` and `CancellationRaceE2EIT` repeat
+the race to show it. The cost is one more round trip and a state the customer can see: cancelling a
+confirmed order answers 202, and the outcome follows.
 
 ## Consequences
 

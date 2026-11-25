@@ -88,7 +88,7 @@ customers.
 | `POST` | `/api/v1/orders` | customer | Place an order for the caller; requires an `Idempotency-Key` header (UUID per order attempt) |
 | `GET` | `/api/v1/orders/{orderId}` | owner, admin | One order with its lines and prices |
 | `GET` | `/api/v1/orders` | customer | The caller's orders, newest first (admin: `?customerId=…` for anyone's) |
-| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel before dispatch |
+| `POST` | `/api/v1/orders/{orderId}/cancel` | owner, admin | Cancel: `200` if not confirmed yet; `202` for a confirmed order, while shipping decides; `409` once shipped |
 
 The customer of an order is always the caller. Someone else's order answers `404`, like an unknown id,
 so order ids cannot be probed. order-service calls customer-service and catalog-service with its own
@@ -136,8 +136,15 @@ Fulfilment is a choreographed saga across order, catalog and shipping ([ADR-0007
 order-placed ──► catalog reserves ──► stock-reserved ──► order CONFIRMED ──► order-confirmed ──► shipment created
                          └──────────► reservation-failed ──► order CANCELLED
 shipment dispatched ──► catalog commits stock, order SHIPPED ──► shipment delivered ──► order DELIVERED
-customer cancels (before dispatch) ──► order-cancelled ──► catalog releases stock, shipping cancels the shipment
+customer cancels a placed order ──► order CANCELLED ──► order-cancelled ──► catalog releases stock
+customer cancels a confirmed order ──► order CANCELLATION_REQUESTED ──► shipping decides:
+    not dispatched ──► shipment cancelled ──► order CANCELLED ──► order-cancelled ──► catalog releases stock
+    dispatched     ──► cancellation refused ──► order stays SHIPPED
 ```
+
+Shipping decides cancellations of confirmed orders because only shipping knows whether the parcel has
+left: a cancellation racing a dispatch ends either cancelled or shipped, never both
+([ADR-0007](docs/adr/0007-order-saga.md)).
 
 Business failures (not enough stock) are published as events in the same transaction as the inbox entry;
 only technical failures roll back and are retried or dead-lettered ([ADR-0004](docs/adr/0004-explicit-transaction-boundaries.md)).
