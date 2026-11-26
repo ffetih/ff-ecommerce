@@ -34,8 +34,8 @@ images:
   - name: ghcr.io/ffetih/ff-ecommerce/order-service
     newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:order-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/payment-service
-    newTag: d59cf0e # {"$imagepolicy": "flux-system:payment-service:tag"}
+    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:payment-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/shipping-service
-    newTag: d59cf0e # {"$imagepolicy": "flux-system:shipping-service:tag"}
+    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:shipping-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/gateway
     newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:gateway:tag"}
