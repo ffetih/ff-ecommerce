@@ -50,7 +50,11 @@ management:
       export:
         otlp:
           endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  # The gateway has no security of its own (each service checks tokens), so its actuator lives on a
+  # separate port that is never published to clients. Prometheus scrapes it there.
+  server:
+    port: ${MANAGEMENT_PORT:9080}
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus

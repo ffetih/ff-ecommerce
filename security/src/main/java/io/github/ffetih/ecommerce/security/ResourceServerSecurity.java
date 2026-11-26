@@ -24,8 +24,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>tokens are validated by Spring Security against the configured issuer (signature from the
  *       issuer's published keys, {@code iss}, {@code exp}/{@code nbf}) and audience ({@code aud});</li>
  *   <li>{@code realm_access.roles} become authorities ({@code hasRole("admin")});</li>
- *   <li>{@code /actuator/metrics} is for the {@code admin} role (operators; monitoring gets its own
- *       access with s09);</li>
+ *   <li>{@code /actuator/metrics} is for the {@code admin} role (operators);</li>
+ *   <li>{@code /actuator/prometheus} is for the {@code monitoring} role (the Prometheus server's own
+ *       client) and for operators; a monitoring token opens nothing else;</li>
  *   <li>anything without a rule is denied ({@code anyRequest().denyAll()} is always last, so a
  *       forgotten endpoint is closed, not open);</li>
  *   <li>401 and 403 are problem responses with an RFC 6750 {@code WWW-Authenticate} header.</li>
@@ -52,6 +53,9 @@ public final class ResourceServerSecurity {
 
     /** Operational detail (queue sizes, error counts, JVM internals): useful to an attacker, so not public. */
     private static final String[] OPERATIONS = {"/actuator/metrics", "/actuator/metrics/**"};
+
+    /** The same metrics in Prometheus' text format, read every few seconds by the monitoring system. */
+    private static final String[] SCRAPE = {"/actuator/prometheus"};
 
     private final JwtAuthenticationConverter authenticationConverter;
     private final AuthenticationEntryPoint authenticationEntryPoint;
@@ -84,6 +88,7 @@ public final class ResourceServerSecurity {
                 .authorizeHttpRequests(rules -> {
                     rules.requestMatchers(ALWAYS_OPEN).permitAll();
                     rules.requestMatchers(OPERATIONS).hasRole("admin");
+                    rules.requestMatchers(SCRAPE).hasAnyRole("monitoring", "admin");
                     allowed.customize(rules);
                     rules.anyRequest().denyAll();
                 });

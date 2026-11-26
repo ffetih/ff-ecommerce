@@ -27,6 +27,7 @@ The ids are fixed so that scripts and tests can refer to them.
 | `ecommerce-cli` | public, device authorization grant | people in a terminal | all five services |
 | `ecommerce-dev` | public, password grant | `scripts/dev-auth.sh`, end-to-end tests | all five services |
 | `order-service` | confidential, client credentials | order-service calling catalog and customer | `catalog-service`, `customer-service` |
+| `prometheus` | confidential, client credentials | the Prometheus server scraping `/actuator/prometheus` | all five services |
 | `shop` | public, authorization code + PKCE (S256) | the web console on `http://localhost:5173` | all five services |
 
 `ecommerce-dev` exists only because scripts and tests need a non-interactive login. The password
@@ -47,6 +48,8 @@ Realm roles appear in access tokens under `realm_access.roles`:
 - `customer`: shoppers; they can only see and change their own data.
 - `admin`: back office.
 - `service`: machine identities (service accounts).
+- `monitoring`: the Prometheus server's service account. It opens `/actuator/prometheus` and nothing
+  else, so a leaked scrape token reads metrics but cannot place an order or see a customer.
 
 ## Admin console
 
@@ -56,6 +59,6 @@ the `admin` user of the `ecommerce` realm.
 ## Not for deployment
 
 This realm exists for local development and tests. Before it goes anywhere else: remove the
-`ecommerce-dev` client, replace the `order-service` secret (and pass it as
+`ecommerce-dev` client, replace the `order-service` and `prometheus` secrets (and pass the first as
 `ORDER_SERVICE_CLIENT_SECRET`), remove the example users, and use the authorization code flow with
 PKCE for browser clients. See [ADR-0008](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/adr/0008-security.html).
