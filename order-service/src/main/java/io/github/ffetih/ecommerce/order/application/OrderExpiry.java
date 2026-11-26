@@ -15,7 +15,8 @@ import java.util.UUID;
  * Stops orders that wait too long, through the same gate as a customer's cancellation (ADR-0007):
  * <ul>
  *   <li>PLACED for longer than {@code placedAfter}: cancelled at once; catalog releases whatever it
- *       reserved when it reads {@code order-cancelled}.</li>
+ *       reserved when it reads {@code order-cancelled}. This also bounds the wait for a payment
+ *       provider that does not answer: the pending authorization is voided (ADR-0009).</li>
  *   <li>CONFIRMED for longer than {@code confirmedAfter} without being dispatched: cancellation is
  *       requested, and shipping decides, exactly as for a customer. If the parcel left meanwhile,
  *       the order ships.</li>
@@ -40,12 +41,15 @@ public class OrderExpiry {
 
     private final OrderRepository orders;
     private final OrderEvents events;
+    private final PaymentSteps payments;
     private final Transactions transactions;
     private final Settings settings;
 
-    public OrderExpiry(OrderRepository orders, OrderEvents events, Transactions transactions, Settings settings) {
+    public OrderExpiry(OrderRepository orders, OrderEvents events, PaymentSteps payments, Transactions transactions,
+                       Settings settings) {
         this.orders = orders;
         this.events = events;
+        this.payments = payments;
         this.transactions = transactions;
         this.settings = settings;
     }
@@ -82,6 +86,7 @@ public class OrderExpiry {
             if (order.status() == Order.Status.PLACED && order.updatedAt().isBefore(placedBefore)) {
                 Order cancelled = order.cancel(NOT_CONFIRMED_IN_TIME, now);
                 orders.update(cancelled);
+                payments.after(order, cancelled); // a payment still being authorized is voided
                 events.orderCancelled(cancelled);
                 return true;
             }

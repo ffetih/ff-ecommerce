@@ -6,6 +6,12 @@ import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderConfirmed;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.payment.AuthorizePayment;
+import io.github.ffetih.ecommerce.events.payment.CapturePayment;
+import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
+import io.github.ffetih.ecommerce.events.payment.PaymentCaptureFailed;
+import io.github.ffetih.ecommerce.events.payment.PaymentDeclined;
+import io.github.ffetih.ecommerce.events.payment.VoidPayment;
 import io.github.ffetih.ecommerce.events.shipping.CancellationRefused;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentCancelled;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDelivered;
@@ -32,6 +38,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.kafka.core.KafkaTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,7 +49,7 @@ import java.util.function.BooleanSupplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Order-service in the saga, driven through Kafka: the test plays catalog and shipping. */
+/** Order-service in the saga, driven through Kafka: the test plays catalog, payment and shipping. */
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
 class SagaReactionsIT {
@@ -66,14 +73,54 @@ class SagaReactionsIT {
     OrderSagaService saga;
 
     @Test
-    void reservedStockConfirmsTheOrderAndAnnouncesIt() throws Exception {
+    void reservedStockAsksForThePaymentAndTheOrderWaits() throws Exception {
         UUID orderId = placedOrder();
 
         publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
                 new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
 
-        awaitStatus(orderId, Order.Status.CONFIRMED);
+        assertThat(eventTypes(AuthorizePayment.TOPIC, orderId, 1)).containsExactly(AuthorizePayment.TYPE);
+        Order waiting = orders.get(orderId, Requester.backOffice());
+        assertThat(waiting.status()).isEqualTo(Order.Status.PLACED);
+        assertThat(waiting.payment()).isEqualTo(Order.PaymentStatus.AUTHORIZING);
+        assertThat(lifecycleEventTypes(orderId, 0)).as("not confirmed yet").isEmpty();
+    }
+
+    @Test
+    void anAuthorizedPaymentConfirmsTheOrderAndAnnouncesIt() throws Exception {
+        UUID orderId = confirmedOrder();
+
+        assertThat(orders.get(orderId, Requester.backOffice()).payment()).isEqualTo(Order.PaymentStatus.AUTHORIZED);
         assertThat(lifecycleEventTypes(orderId, 1)).containsExactly(OrderConfirmed.TYPE);
+    }
+
+    @Test
+    void aDeclinedPaymentCancelsTheOrderAndReleasesTheStock() throws Exception {
+        UUID orderId = placedOrder();
+        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
+                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitPayment(orderId, Order.PaymentStatus.AUTHORIZING);
+
+        publish(PaymentAuthorized.TOPIC, orderId, PaymentDeclined.TYPE,
+                new PaymentDeclined(UUID.randomUUID(), orderId, "Card declined"));
+
+        awaitStatus(orderId, Order.Status.CANCELLED);
+        assertThat(orders.get(orderId, Requester.backOffice()).cancellationReason()).isEqualTo("Payment declined: Card declined");
+        assertThat(lifecycleEventTypes(orderId, 1)).containsExactly(OrderCancelled.TYPE);
+    }
+
+    @Test
+    void theDispatchCapturesThePaymentAndACaptureFailureLeavesTheOrderShipped() throws Exception {
+        UUID orderId = confirmedOrder();
+
+        publish(ShipmentDispatched.TOPIC, orderId, ShipmentDispatched.TYPE,
+                new ShipmentDispatched(UUID.randomUUID(), orderId, "TRK-9"));
+
+        assertThat(eventTypes(AuthorizePayment.TOPIC, orderId, 2)).containsExactly(AuthorizePayment.TYPE, CapturePayment.TYPE);
+        publish(PaymentAuthorized.TOPIC, orderId, PaymentCaptureFailed.TYPE,
+                new PaymentCaptureFailed(UUID.randomUUID(), orderId, "Authorization expired"));
+        awaitPayment(orderId, Order.PaymentStatus.OVERDUE);
+        assertThat(orders.get(orderId, Requester.backOffice()).status()).isEqualTo(Order.Status.SHIPPED);
     }
 
     @Test
@@ -103,10 +150,7 @@ class SagaReactionsIT {
 
     @Test
     void shipmentEventsShipAndDeliverTheOrder() throws Exception {
-        UUID orderId = placedOrder();
-        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
-                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
-        awaitStatus(orderId, Order.Status.CONFIRMED);
+        UUID orderId = confirmedOrder();
         UUID shipmentId = UUID.randomUUID();
 
         publish(ShipmentDispatched.TOPIC, orderId, ShipmentDispatched.TYPE,
@@ -119,10 +163,7 @@ class SagaReactionsIT {
 
     @Test
     void aDeliveryForAnOrderThatWasNeverShippedIsDeadLetteredAndChangesNothing() throws Exception {
-        UUID orderId = placedOrder();
-        publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
-                new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
-        awaitStatus(orderId, Order.Status.CONFIRMED);
+        UUID orderId = confirmedOrder();
 
         // As if shipment-dispatched had been dead-lettered: the delivery arrives without it.
         publish(ShipmentDispatched.TOPIC, orderId, ShipmentDelivered.TYPE,
@@ -146,9 +187,10 @@ class SagaReactionsIT {
 
         awaitStatus(orderId, Order.Status.CANCELLED);
         assertThat(orders.get(orderId, Requester.backOffice()).cancellationReason()).isEqualTo("changed my mind");
-        // Only now is catalog told to release the stock.
+        // Only now is catalog told to release the stock, and payment-service to release the hold.
         assertThat(lifecycleEventTypes(orderId, 3))
                 .containsExactly(OrderConfirmed.TYPE, OrderCancellationRequested.TYPE, OrderCancelled.TYPE);
+        assertThat(eventTypes(AuthorizePayment.TOPIC, orderId, 2)).containsExactly(AuthorizePayment.TYPE, VoidPayment.TYPE);
     }
 
     @Test
@@ -169,17 +211,21 @@ class SagaReactionsIT {
 
     // --- helpers -----------------------------------------------------------------------------
 
+    /** Stock reserved and payment authorized, as catalog and payment-service would report it. */
     private UUID confirmedOrder() throws Exception {
         UUID orderId = placedOrder();
         publish(StockReserved.TOPIC, orderId, StockReserved.TYPE,
                 new StockReserved(orderId, List.of(new StockReserved.Line("KB-01", 2))));
+        awaitPayment(orderId, Order.PaymentStatus.AUTHORIZING);
+        publish(PaymentAuthorized.TOPIC, orderId, PaymentAuthorized.TYPE,
+                new PaymentAuthorized(UUID.randomUUID(), orderId, new BigDecimal("179.80"), "EUR"));
         awaitStatus(orderId, Order.Status.CONFIRMED);
         return orderId;
     }
 
     private UUID placedOrder() {
         Order order = Order.place(UUID.randomUUID(),
-                List.of(new OrderLine(Sku.of("KB-01"), 2, Money.of("89.90", "EUR"))), "Somewhere 1", Instant.now());
+                List.of(new OrderLine(Sku.of("KB-01"), 2, Money.of("89.90", "EUR"))), "Somewhere 1", "tok_ok", Instant.now());
         transactions.inTransaction(() -> {
             orderRepository.insert(order, UUID.randomUUID(), "test");
             return null;
@@ -194,6 +240,10 @@ class SagaReactionsIT {
 
     private void awaitStatus(UUID orderId, Order.Status expected) throws InterruptedException {
         awaitUntil(() -> orders.get(orderId, Requester.backOffice()).status() == expected);
+    }
+
+    private void awaitPayment(UUID orderId, Order.PaymentStatus expected) throws InterruptedException {
+        awaitUntil(() -> orders.get(orderId, Requester.backOffice()).payment() == expected);
     }
 
     /** Event types order-service published for one order; keeps polling briefly to catch extras. */

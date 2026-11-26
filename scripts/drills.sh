@@ -29,15 +29,16 @@ drill_setup() {
 }
 
 # Places one unit of $SKU as bob, waits for the saga, prints the order id.
+# place [card-token]: tok_ok (default), tok_decline, tok_slow or tok_capture_fails picks the payment outcome.
 place() {
   curl -s -X POST $GW/orders -H "Authorization: Bearer $BOB" -H "$J" -H "Idempotency-Key: $(uuid)" \
-    -d "{\"lines\":[{\"sku\":\"$SKU\",\"quantity\":1}]}" | jq -r .id
+    -d "{\"cardToken\":\"${1:-tok_ok}\",\"lines\":[{\"sku\":\"$SKU\",\"quantity\":1}]}" | jq -r .id
   sleep 2
 }
 
 # Order, shipment and stock of one order.
 show() {
-  echo "order    = $(curl -s $GW/orders/$1 -H "Authorization: Bearer $BOB" | jq -r .status)"
+  echo "order    = $(curl -s $GW/orders/$1 -H "Authorization: Bearer $BOB" | jq -r '"\(.status), payment \(.paymentStatus)"')"
   echo "shipment = $(curl -s "$GW/shipments?orderId=$1" -H "Authorization: Bearer $ADMIN" | jq -r 'if .id then .status else "none" end')"
   echo "stock    = $(curl -s $GW/stock/$SKU -H "Authorization: Bearer $ADMIN" | jq -c '{onHand,reserved,available}')"
 }
@@ -74,4 +75,27 @@ race() {
     -H "Authorization: Bearer $ADMIN") &
   wait; sleep 3
   show $ORDER
+}
+
+# Cancels an order as bob and prints the HTTP status.
+cancel() {
+  curl -s -o /dev/null -w 'cancel   -> %{http_code}\n' -X POST $GW/orders/$1/cancel \
+    -H "Authorization: Bearer $BOB" -H "$J" -d '{"reason":"changed my mind"}'
+}
+
+# Dispatches an order's shipment as the warehouse and prints the HTTP status.
+dispatch() {
+  local ship
+  ship=$(curl -s "$GW/shipments?orderId=$1" -H "Authorization: Bearer $ADMIN" | jq -r .id)
+  curl -s -o /dev/null -w 'dispatch -> %{http_code}\n' -X POST $GW/shipments/$ship/dispatch \
+    -H "Authorization: Bearer $ADMIN"
+}
+
+# payment-service's view of an order: the payment row and its ledger entries (payment-service has no API).
+payment() {
+  docker compose exec -T -e PGPASSWORD=payment_service postgres psql -h localhost -U payment_service -d payment_db -q \
+    -c "select status, void_requested, provider_reference is not null as held, failure_reason from payments where order_id = '$1'" \
+    -c "select t.kind, e.account, e.amount, e.currency from ledger_transactions t
+          join ledger_entries e on e.transaction_id = t.id join payments p on p.id = t.payment_id
+         where p.order_id = '$1' order by t.booked_at, e.line_number"
 }

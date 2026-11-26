@@ -111,6 +111,7 @@ class OrderApiIT {
         JsonNode order = json.readTree(response.body());
         assertThat(order.get("totalAmount").decimalValue()).isEqualByComparingTo("204.30");
         assertThat(order.get("status").asString()).isEqualTo("PLACED");
+        assertThat(order.get("paymentStatus").asString()).isEqualTo("NOT_REQUESTED");
         assertThat(order.get("shippingAddress").asString()).isEqualTo("Bağdat Cd. 1, İstanbul");
 
         OrderPlaced event = orderPlacedEvent(order.get("id").asString());
@@ -198,9 +199,21 @@ class OrderApiIT {
         UUID customer = activeCustomer();
 
         ApiResponse response = call(customerToken(customer), HttpMethod.POST, "/api/v1/orders", Map.of(),
+                "{\"cardToken\":\"tok_ok\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
+
+        assertThat(response.status()).isEqualTo(400);
+    }
+
+    @Test
+    void requiresAPaymentMethod() {
+        UUID customer = activeCustomer();
+
+        ApiResponse response = call(customerToken(customer), HttpMethod.POST, "/api/v1/orders",
+                Map.of("Idempotency-Key", UUID.randomUUID().toString()),
                 "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
 
         assertThat(response.status()).isEqualTo(400);
+        assertThat(ordersOf(customer)).isZero();
     }
 
     // --- who may do what -----------------------------------------------------------------------
@@ -216,7 +229,7 @@ class OrderApiIT {
 
         ApiResponse response = call(customerToken(alice), HttpMethod.POST, "/api/v1/orders",
                 Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}],\"shippingAddress\":\"" + "x".repeat(501) + "\"}");
+                "{\"cardToken\":\"tok_ok\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}],\"shippingAddress\":\"" + "x".repeat(501) + "\"}");
 
         assertThat(response.status()).isEqualTo(400);
         assertThat(ordersOf(alice)).isZero();
@@ -230,7 +243,7 @@ class OrderApiIT {
         // An old client, or an attacker, still sends a customerId: it is not part of the API.
         ApiResponse response = call(customerToken(alice), HttpMethod.POST, "/api/v1/orders",
                 Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"customerId\":\"" + bob + "\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
+                "{\"cardToken\":\"tok_ok\",\"customerId\":\"" + bob + "\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}");
 
         assertThat(response.status()).isEqualTo(201);
         assertThat(json.readTree(response.body()).get("customerId").asString()).isEqualTo(alice.toString());
@@ -265,7 +278,7 @@ class OrderApiIT {
 
     @Test
     void onlyCustomersPlaceOrders() {
-        String body = "{\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}";
+        String body = "{\"cardToken\":\"tok_ok\",\"lines\":[{\"sku\":\"KB-01\",\"quantity\":1}]}";
         Map<String, String> key = Map.of("Idempotency-Key", UUID.randomUUID().toString());
 
         assertThat(call(null, HttpMethod.POST, "/api/v1/orders", key, body).status()).isEqualTo(401);
@@ -314,7 +327,7 @@ class OrderApiIT {
         int tokensIssued = tokens().issuedTo("order-service").size();
 
         call(aliceToken, HttpMethod.POST, "/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"lines\":[{\"sku\":\"MOUSE-01\",\"quantity\":1}]}");
+                "{\"cardToken\":\"tok_ok\",\"lines\":[{\"sku\":\"MOUSE-01\",\"quantity\":1}]}");
 
         String toCustomerService = last(CUSTOMER_SERVICE).authorization();
         String toCatalogService = last(CATALOG_SERVICE).authorization();
@@ -360,7 +373,7 @@ class OrderApiIT {
 
     private ApiResponse placeOrder(UUID customer, UUID key, String linesJson) {
         return call(customerToken(customer), HttpMethod.POST, "/api/v1/orders", Map.of("Idempotency-Key", key.toString()),
-                "{\"lines\":" + linesJson + "}");
+                "{\"cardToken\":\"tok_ok\",\"lines\":" + linesJson + "}");
     }
 
     private static String customerToken(UUID customer) {

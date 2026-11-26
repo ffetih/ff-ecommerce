@@ -58,7 +58,8 @@ class OrderController {
         var command = new PlaceOrderCommand(
                 Requesters.customerId(caller),
                 request.lines().stream().map(line -> new PlaceOrderCommand.Line(Sku.of(line.sku()), line.quantity())).toList(),
-                request.shippingAddress());
+                request.shippingAddress(),
+                request.cardToken());
         OrderService.Placement placement = orders.place(command, idempotencyKey);
         OrderResponse body = OrderResponse.from(placement.order());
         if (placement.replayed()) {
@@ -106,7 +107,8 @@ class OrderController {
 
     record PlaceOrderRequest(
             @NotEmpty @Size(max = Order.MAX_LINES) List<@Valid LineRequest> lines,
-            @Size(max = Order.MAX_ADDRESS_LENGTH) String shippingAddress) {
+            @Size(max = Order.MAX_ADDRESS_LENGTH) String shippingAddress,
+            @NotBlank @Size(max = 64) String cardToken) {
     }
 
     record LineRequest(@NotBlank String sku, @Positive int quantity) {
@@ -119,6 +121,7 @@ class OrderController {
             UUID id,
             UUID customerId,
             Order.Status status,
+            Order.PaymentStatus paymentStatus,
             List<LineResponse> lines,
             BigDecimal totalAmount,
             String currency,
@@ -131,6 +134,7 @@ class OrderController {
                     order.id(),
                     order.customerId(),
                     order.status(),
+                    order.payment(),
                     order.lines().stream()
                             .map(line -> new LineResponse(line.sku().value(), line.quantity(),
                                     line.unitPrice().amount(), line.lineTotal().amount()))

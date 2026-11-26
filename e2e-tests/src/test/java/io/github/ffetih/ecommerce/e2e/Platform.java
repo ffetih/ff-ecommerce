@@ -22,7 +22,7 @@ import java.util.concurrent.Future;
 
 /**
  * The whole system for end-to-end tests: one PostgreSQL (initialized with the same scripts as
- * compose.yaml), one Kafka, Keycloak with the same realm as compose.yaml, the four services and the
+ * compose.yaml), one Kafka, Keycloak with the same realm as compose.yaml, the five services and the
  * gateway as separate processes. Tests talk to the gateway, as clients do.
  *
  * <p>Started once per test JVM and shared by all end-to-end test classes; stopped when the JVM exits.
@@ -31,7 +31,9 @@ final class Platform implements AutoCloseable {
 
     private static final List<String> TOPICS = List.of(
             "catalog.stock", "catalog.reservations", "order.lifecycle", "shipping.shipments",
-            "order.lifecycle-dlt", "catalog.reservations-dlt", "shipping.shipments-dlt");
+            "payment.commands", "payment.events",
+            "order.lifecycle-dlt", "catalog.reservations-dlt", "shipping.shipments-dlt",
+            "payment.commands-dlt", "payment.events-dlt");
 
     private static Platform shared;
 
@@ -43,11 +45,12 @@ final class Platform implements AutoCloseable {
     final ServiceProcess customer;
     final ServiceProcess order;
     final ServiceProcess shipping;
+    final ServiceProcess payment;
     final ServiceProcess gateway;
 
     private Platform(PostgreSQLContainer postgres, KafkaContainer kafka, GenericContainer<?> keycloak, Tokens tokens,
                      ServiceProcess catalog, ServiceProcess customer, ServiceProcess order, ServiceProcess shipping,
-                     ServiceProcess gateway) {
+                     ServiceProcess payment, ServiceProcess gateway) {
         this.postgres = postgres;
         this.kafka = kafka;
         this.keycloak = keycloak;
@@ -56,6 +59,7 @@ final class Platform implements AutoCloseable {
         this.customer = customer;
         this.order = order;
         this.shipping = shipping;
+        this.payment = payment;
         this.gateway = gateway;
     }
 
@@ -76,7 +80,7 @@ final class Platform implements AutoCloseable {
         KafkaContainer kafka = Infrastructure.kafka();
         GenericContainer<?> keycloak = Infrastructure.keycloak(root.resolve("infra/keycloak/import"));
         Startables.deepStart(postgres, kafka, keycloak).join();
-        // Create topics up front so four services starting at once do not race to create the same ones.
+        // Create topics up front so five services starting at once do not race to create the same ones.
         try (AdminClient admin = AdminClient.create(
                 Map.of(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafka.getBootstrapServers()))) {
             admin.createTopics(TOPICS.stream().map(topic -> new NewTopic(topic, 3, (short) 1)).toList()).all().get();
@@ -101,6 +105,11 @@ final class Platform implements AutoCloseable {
                         "CUSTOMER_SERVICE_URL", "http://localhost:" + customerPort));
         ServiceProcess shipping = ServiceProcess.start("shipping-service", jar(root, "shipping-service", version), shippingPort,
                 Map.of("SHIPPING_DB_URL", jdbc + "shipping_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer));
+        // A provider call without an answer is asked again after a second, not 30 (tok_slow tests).
+        ServiceProcess payment = ServiceProcess.start("payment-service", jar(root, "payment-service", version), freePort(),
+                Map.of("PAYMENT_DB_URL", jdbc + "payment_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer,
+                        "ECOMMERCE_PAYMENTS_RESOLVER_STALEAFTER", "1s",
+                        "ECOMMERCE_PAYMENTS_RESOLVER_SCANINTERVAL", "500ms"));
 
         ServiceProcess gateway = ServiceProcess.start("gateway", jar(root, "gateway", version), freePort(),
                 Map.of("CATALOG_SERVICE_URL", "http://localhost:" + catalogPort,
@@ -109,10 +118,10 @@ final class Platform implements AutoCloseable {
                         "SHIPPING_SERVICE_URL", "http://localhost:" + shippingPort));
 
         Platform platform = new Platform(postgres, kafka, keycloak, new Tokens(issuer),
-                catalog, customer, order, shipping, gateway);
+                catalog, customer, order, shipping, payment, gateway);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<?>> startups = new ArrayList<>();
-            for (ServiceProcess service : List.of(catalog, customer, order, shipping, gateway)) {
+            for (ServiceProcess service : List.of(catalog, customer, order, shipping, payment, gateway)) {
                 startups.add(executor.submit(() -> {
                     service.awaitHealthy(Duration.ofMinutes(3));
                     return null;
@@ -140,7 +149,7 @@ final class Platform implements AutoCloseable {
 
     @Override
     public void close() {
-        for (ServiceProcess service : List.of(gateway, shipping, order, customer, catalog)) {
+        for (ServiceProcess service : List.of(gateway, payment, shipping, order, customer, catalog)) {
             service.close();
         }
         keycloak.stop();

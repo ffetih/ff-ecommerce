@@ -3,14 +3,18 @@ package io.github.ffetih.ecommerce.order.config;
 import io.github.ffetih.ecommerce.events.Topics;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.payment.AuthorizePayment;
+import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.MessagingTopics;
 import io.github.ffetih.ecommerce.order.application.OrderExpiry;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
+import io.github.ffetih.ecommerce.order.application.PaymentSteps;
 import io.github.ffetih.ecommerce.order.application.port.CustomerDirectory;
 import io.github.ffetih.ecommerce.order.application.port.OrderEvents;
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
+import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
 import io.github.ffetih.ecommerce.order.application.port.PriceCatalog;
 import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
@@ -38,15 +42,20 @@ class OrderConfiguration {
     }
 
     @Bean
-    OrderSagaService orderSagaService(OrderRepository orders, OrderEvents events, ProcessedEvents processedEvents,
-                                      Transactions transactions, Clock clock) {
-        return new OrderSagaService(orders, events, processedEvents, transactions, clock);
+    PaymentSteps paymentSteps(PaymentCommands commands) {
+        return new PaymentSteps(commands);
     }
 
     @Bean
-    OrderExpiry orderExpiry(OrderRepository orders, OrderEvents events, Transactions transactions,
+    OrderSagaService orderSagaService(OrderRepository orders, OrderEvents events, PaymentSteps payments,
+                                      ProcessedEvents processedEvents, Transactions transactions, Clock clock) {
+        return new OrderSagaService(orders, events, payments, processedEvents, transactions, clock);
+    }
+
+    @Bean
+    OrderExpiry orderExpiry(OrderRepository orders, OrderEvents events, PaymentSteps payments, Transactions transactions,
                             ExpiryProperties properties) {
-        return new OrderExpiry(orders, events, transactions, new OrderExpiry.Settings(
+        return new OrderExpiry(orders, events, payments, transactions, new OrderExpiry.Settings(
                 properties.placedAfter(), properties.confirmedAfter(), properties.batchSize()));
     }
 
@@ -54,7 +63,7 @@ class OrderConfiguration {
     @Bean
     KafkaAdmin.NewTopics orderTopics(MessagingTopics topics) {
         return topics.declare(Topics.PARTITIONS,
-                List.of(OrderPlaced.TOPIC),
-                List.of(StockReserved.TOPIC, ShipmentDispatched.TOPIC));
+                List.of(OrderPlaced.TOPIC, AuthorizePayment.TOPIC),
+                List.of(StockReserved.TOPIC, ShipmentDispatched.TOPIC, PaymentAuthorized.TOPIC));
     }
 }

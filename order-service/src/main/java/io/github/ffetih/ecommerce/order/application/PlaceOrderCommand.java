@@ -15,8 +15,9 @@ import java.util.UUID;
  * What the client asked for. Prices are deliberately absent: they come from the catalog.
  *
  * @param shippingAddress optional; the customer's stored address is used when absent
+ * @param cardToken       the payment method, as the payment provider knows it; never a card number
  */
-public record PlaceOrderCommand(UUID customerId, List<Line> lines, String shippingAddress) {
+public record PlaceOrderCommand(UUID customerId, List<Line> lines, String shippingAddress, String cardToken) {
 
     public record Line(Sku sku, int quantity) {
     }
@@ -28,6 +29,10 @@ public record PlaceOrderCommand(UUID customerId, List<Line> lines, String shippi
         }
         lines = List.copyOf(lines);
         shippingAddress = shippingAddress == null || shippingAddress.isBlank() ? null : shippingAddress.trim();
+        if (cardToken == null || cardToken.isBlank()) {
+            throw new IllegalArgumentException("A payment method (card token) is required");
+        }
+        cardToken = cardToken.trim();
     }
 
     /**
@@ -38,7 +43,8 @@ public record PlaceOrderCommand(UUID customerId, List<Line> lines, String shippi
     public String fingerprint() {
         StringBuilder canonical = new StringBuilder()
                 .append(customerId).append('|')
-                .append(shippingAddress == null ? "" : shippingAddress).append('|');
+                .append(shippingAddress == null ? "" : shippingAddress).append('|')
+                .append(cardToken).append('|');
         lines.stream()
                 .sorted(Comparator.comparing(Line::sku))
                 .forEach(line -> canonical.append(line.sku()).append(':').append(line.quantity()).append(';'));

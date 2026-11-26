@@ -54,6 +54,13 @@ class OrderEntity {
     @Column(length = 500)
     private String cancellationReason;
 
+    @Column(length = 64)
+    private String cardToken;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status", nullable = false, length = 16)
+    private Order.PaymentStatus payment;
+
     @Column(nullable = false)
     private UUID idempotencyKey;
 
@@ -87,6 +94,7 @@ class OrderEntity {
         this.shippingAddress = order.shippingAddress();
         this.idempotencyKey = idempotencyKey;
         this.requestHash = requestHash;
+        this.cardToken = order.cardToken();
         this.createdAt = order.createdAt();
         order.lines().forEach(line -> lines.add(
                 new OrderLineEmbeddable(line.sku().value(), line.quantity(), line.unitPrice().amount())));
@@ -96,6 +104,7 @@ class OrderEntity {
     void update(Order order) {
         this.status = order.status();
         this.cancellationReason = order.cancellationReason();
+        this.payment = order.payment();
         this.updatedAt = order.updatedAt();
     }
 
@@ -109,6 +118,6 @@ class OrderEntity {
                 .map(line -> new OrderLine(Sku.of(line.sku()), line.quantity(), new Money(line.unitPrice(), orderCurrency)))
                 .toList();
         return new Order(id, customerId, domainLines, new Money(totalAmount, orderCurrency), shippingAddress,
-                status, cancellationReason, createdAt, updatedAt);
+                status, cancellationReason, cardToken, payment, createdAt, updatedAt);
     }
 }
