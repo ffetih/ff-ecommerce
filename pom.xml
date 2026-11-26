@@ -28,6 +28,7 @@
         <module>customer-service</module>
         <module>order-service</module>
         <module>shipping-service</module>
+        <module>payment-service</module>
         <module>gateway</module>
         <module>e2e-tests</module>
     </modules>
