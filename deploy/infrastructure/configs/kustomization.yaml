@@ -8,6 +8,8 @@ resources:
   - namespace.yaml
   - kafka.yaml
   - postgres.yaml
+  - keycloak.yaml
+  - ../../../infra/keycloak/import   # the realm ConfigMap, generated from the same JSON compose uses
 
 # One login per service (ADR-0002), the same credentials as compose. Local cluster only: real
 # environments would bring these from a secret store, never from Git.

@@ -1,0 +1,77 @@
+# Keycloak in dev mode, like compose: embedded database, realm imported at start. A restarted pod comes
+# back with exactly the realm in Git, nothing more; that is what we want here, not for production.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+  labels: { app: keycloak }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.8.2
+          args: ["start-dev", "--import-realm"]
+          env:
+            # One issuer for every token (ADR-0012), now the Ingress address: the browser and curl call
+            # keycloak.localtest.me:8888, pods call keycloak:8080, both get iss=http://keycloak.localtest.me:8888/...
+            - { name: KC_HOSTNAME, value: "http://keycloak.localtest.me:8888" }
+            - { name: KC_HOSTNAME_BACKCHANNEL_DYNAMIC, value: "true" }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            # Local cluster only, same as compose.
+            - { name: KC_BOOTSTRAP_ADMIN_USERNAME, value: kcadmin }
+            - { name: KC_BOOTSTRAP_ADMIN_PASSWORD, value: kcadmin }
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 9000 }
+          # The management port answers health checks; the kubelet calls them, so no curl or bash tricks.
+          startupProbe:
+            httpGet: { path: /health/started, port: management }
+            periodSeconds: 5
+            failureThreshold: 60     # up to 5 minutes for the first start and the realm import
+          readinessProbe:
+            httpGet: { path: /health/ready, port: management }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health/live, port: management }
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { memory: 1Gi }
+          volumeMounts:
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+      volumes:
+        - name: realm
+          configMap:
+            name: keycloak-realm     # Kustomize rewrites this to the hashed name
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak               # pods use http://keycloak:8080 for keys and tokens (back channel)
+spec:
+  selector: { app: keycloak }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+---
+# The front door: Traefik (k3s's built-in ingress controller) routes by host name. *.localtest.me is a
+# public DNS name that resolves to 127.0.0.1, and k3d publishes the cluster's port 80 on the host as 8888.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: keycloak
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: keycloak.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: keycloak, port: { name: http } }
