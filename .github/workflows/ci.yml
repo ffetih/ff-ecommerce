@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [main, "sprint/**"]
+    # Nothing to build when only the cluster's manifests or the docs change; Flux's own commits (new
+    # image tags in deploy/) would otherwise start a full build each. Pull requests always build.
+    paths-ignore: ["deploy/**", "**.md"]
   pull_request:
 
 concurrency:
@@ -41,10 +44,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tagged with the commit's short SHA (immutable: what a cluster deploys) and "main" (the latest).
+      # Tagged main-<run>-<sha>: immutable, and sortable by the run number, so Flux's ImagePolicy can tell
+      # which image is newest (a SHA alone has no order). Also tagged with the short SHA and "main" (the latest).
       - name: Publish images
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: ./mvnw -B -ntp -DskipTests -Dimage.tag=${GITHUB_SHA::7} -Djib.to.tags=main package jib:build
+        run: >-
+          ./mvnw -B -ntp -DskipTests
+          -Dimage.tag=main-${GITHUB_RUN_NUMBER}-${GITHUB_SHA::7}
+          -Djib.to.tags=${GITHUB_SHA::7},main
+          package jib:build
 
       # When something fails, keep what is needed to see why: the test reports, and the logs of the
       # services the end-to-end tests started as separate processes.
