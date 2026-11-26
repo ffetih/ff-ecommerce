@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-service
+  labels: { app: customer-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: customer-service }
+  template:
+    metadata:
+      labels: { app: customer-service }
+    spec:
+      containers:
+        - name: customer-service
+          image: ghcr.io/ffetih/ff-ecommerce/customer-service     # the tag comes from the overlay
+          ports:
+            - { name: http, containerPort: 8082 }
+          envFrom:
+            - configMapRef: { name: platform }       # addresses shared by every service (overlay)
+          env:
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres-rw:5432/customer_db" }
+            - { name: SPRING_DATASOURCE_USERNAME, valueFrom: { secretKeyRef: { name: customer-db-credentials, key: username } } }
+            - { name: SPRING_DATASOURCE_PASSWORD, valueFrom: { secretKeyRef: { name: customer-db-credentials, key: password } } }
+          # Spring Boot's health groups (s11): liveness = the JVM is fine, readiness = it may take traffic.
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36                       # up to 3 minutes to start
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { memory: 512Mi }               # the JVM takes 75% of it as heap (Jib jvmFlags)
+          securityContext:
+            runAsNonRoot: true                         # the image runs as 1000:1000
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: customer-service
+spec:
+  selector: { app: customer-service }
+  ports:
+    - { name: http, port: 8082, targetPort: http }

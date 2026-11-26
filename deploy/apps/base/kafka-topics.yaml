@@ -1,0 +1,114 @@
+# The topics, owned by Git: Strimzi's Topic Operator turns each KafkaTopic into a topic. Same shape as
+# MessagingTopics creates in compose: 3 partitions (Topics.PARTITIONS), 7 days for events, 30 days for
+# dead letters, and a dead-letter topic (suffix -dlt) for every topic somebody reads.
+# In the cluster the services don't create topics (SPRING_KAFKA_ADMIN_AUTO_CREATE=false), so they need no
+# Create or Alter rights.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: catalog.reservations
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: catalog.stock
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: order.lifecycle
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: payment.commands
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: payment.events
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: shipping.shipments
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3
+  replicas: 1
+  config: { retention.ms: 604800000 }     # 7 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: catalog.reservations-dlt
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3                           # a dead letter keeps its partition number
+  replicas: 1
+  config: { retention.ms: 2592000000 }    # 30 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: order.lifecycle-dlt
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3                           # a dead letter keeps its partition number
+  replicas: 1
+  config: { retention.ms: 2592000000 }    # 30 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: payment.commands-dlt
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3                           # a dead letter keeps its partition number
+  replicas: 1
+  config: { retention.ms: 2592000000 }    # 30 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: payment.events-dlt
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3                           # a dead letter keeps its partition number
+  replicas: 1
+  config: { retention.ms: 2592000000 }    # 30 days
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: shipping.shipments-dlt
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  partitions: 3                           # a dead letter keeps its partition number
+  replicas: 1
+  config: { retention.ms: 2592000000 }    # 30 days

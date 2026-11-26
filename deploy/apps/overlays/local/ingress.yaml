@@ -1,0 +1,16 @@
+# The shop's front door: http://shop.localtest.me:8888 → gateway. Only the gateway is exposed; the
+# services and the gateway's management port stay inside the cluster.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shop
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: shop.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: gateway, port: { name: http } }

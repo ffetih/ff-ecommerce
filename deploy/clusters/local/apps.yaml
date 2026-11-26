@@ -1,0 +1,18 @@
+# Layer 3: our services. They need Kafka, PostgreSQL and Keycloak running, so they wait for infra-configs.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-configs
+  path: ./deploy/apps/overlays/local
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m
+  prune: true
+  wait: true           # Ready only when every Deployment is available (its readiness probe passes)
