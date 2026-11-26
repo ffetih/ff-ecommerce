@@ -40,6 +40,12 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- the Prometheus endpoint, to test who may scrape it -->
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>io.github.ffetih.ecommerce</groupId>
             <artifactId>test-support</artifactId>
             <version>${project.version}</version>

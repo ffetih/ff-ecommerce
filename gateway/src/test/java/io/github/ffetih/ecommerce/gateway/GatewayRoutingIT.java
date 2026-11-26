@@ -42,6 +42,10 @@ class GatewayRoutingIT {
     @Value("${local.server.port}")
     int port;
 
+    /** The gateway's actuator listens on its own port, never published to clients; random in tests. */
+    @Value("${local.management.port}")
+    int managementPort;
+
     record Answer(int status, String body) {
     }
 
@@ -102,8 +106,19 @@ class GatewayRoutingIT {
     }
 
     @Test
-    void reportsItsOwnHealth() {
-        assertThat(call(HttpMethod.GET, "/actuator/health", null, null).body()).contains("\"status\":\"UP\"");
+    void reportsItsOwnHealthOnTheManagementPort() {
+        assertThat(managementPort).isNotEqualTo(port);
+        assertThat(call(managementPort, HttpMethod.GET, "/actuator/health", null, null).body()).contains("\"status\":\"UP\"");
+    }
+
+    @Test
+    void metricsAreScrapedOnTheManagementPortAndNeverServedToClients() {
+        Answer scrape = call(managementPort, HttpMethod.GET, "/actuator/prometheus", null, null);
+        assertThat(scrape.status()).isEqualTo(200);
+        assertThat(scrape.body()).contains("jvm_threads_live_threads");
+
+        assertThat(call(HttpMethod.GET, "/actuator/prometheus", null, null).status()).isEqualTo(404);
+        assertThat(call(HttpMethod.GET, "/actuator/health", null, null).status()).isEqualTo(404);
     }
 
     private static StubServer.Request last(String service) {
@@ -117,8 +132,12 @@ class GatewayRoutingIT {
     }
 
     private Answer call(HttpMethod method, String path, String authorization, String json) {
+        return call(port, method, path, authorization, json);
+    }
+
+    private Answer call(int targetPort, HttpMethod method, String path, String authorization, String json) {
         RestClient.RequestBodySpec request = RestClient.create().method(method)
-                .uri(URI.create("http://localhost:" + port + path));
+                .uri(URI.create("http://localhost:" + targetPort + path));
         if (authorization != null) {
             request = request.header(HttpHeaders.AUTHORIZATION, authorization);
         }

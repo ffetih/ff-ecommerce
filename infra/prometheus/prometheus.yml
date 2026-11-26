@@ -1,0 +1,38 @@
+# Prometheus for local development (compose profile "observability", ADR-0011).
+# It runs on the host network, so "localhost" here is the machine the services run on: the same
+# addresses you use with curl, and the same Keycloak URL the services trust as token issuer.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # The five services protect /actuator/prometheus: Prometheus logs in as the "prometheus" client
+  # (client credentials, role "monitoring") and refreshes its token before it expires.
+  - job_name: services
+    metrics_path: /actuator/prometheus
+    oauth2:
+      client_id: prometheus
+      client_secret: prometheus-secret
+      token_url: http://localhost:8180/realms/ecommerce/protocol/openid-connect/token
+    static_configs:
+      - targets: ["localhost:8081"]
+        labels: { service: catalog-service }
+      - targets: ["localhost:8082"]
+        labels: { service: customer-service }
+      - targets: ["localhost:8083"]
+        labels: { service: order-service }
+      - targets: ["localhost:8084"]
+        labels: { service: shipping-service }
+      - targets: ["localhost:8085"]
+        labels: { service: payment-service }
+
+  # The gateway has no security of its own; its actuator is on a management port clients never see.
+  - job_name: gateway
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["localhost:8089"]
+        labels: { service: gateway }

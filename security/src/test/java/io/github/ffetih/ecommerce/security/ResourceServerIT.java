@@ -143,6 +143,23 @@ class ResourceServerIT {
     }
 
     @Test
+    void prometheusMayScrapeMetricsButNothingElse() {
+        String prometheus = issuer.token("9e000000-0000-4000-8000-000000000009").audiences("test-service").roles("monitoring").sign();
+        String admin = issuer.token("ad000000-0000-4000-8000-000000000003").audiences("test-service").roles("admin").sign();
+
+        Response scrape = get("/actuator/prometheus", prometheus);
+        assertThat(scrape.status()).isEqualTo(200);
+        assertThat(scrape.body()).contains("jvm_threads_live_threads");
+        assertThat(get("/actuator/prometheus", admin).status()).isEqualTo(200);
+
+        assertThat(get("/actuator/prometheus", null).status()).isEqualTo(401);
+        assertThat(get("/actuator/prometheus", customer()).status()).isEqualTo(403);
+        // The scraper's token is not an operator's: no metrics endpoint, no business endpoint.
+        assertThat(get("/actuator/metrics", prometheus).status()).isEqualTo(403);
+        assertThat(get("/api/test/admin", prometheus).status()).isEqualTo(403);
+    }
+
+    @Test
     void healthStaysOpenForProbes() {
         assertThat(get("/actuator/health", null).status()).isEqualTo(200);
     }

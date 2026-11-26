@@ -120,7 +120,9 @@ final class Platform implements AutoCloseable {
                 Map.of("CATALOG_SERVICE_URL", "http://localhost:" + catalogPort,
                         "CUSTOMER_SERVICE_URL", "http://localhost:" + customerPort,
                         "ORDER_SERVICE_URL", "http://localhost:" + orderPort,
-                        "SHIPPING_SERVICE_URL", "http://localhost:" + shippingPort));
+                        "SHIPPING_SERVICE_URL", "http://localhost:" + shippingPort,
+                        // Actuator on the main port, so the health check finds it like on every service.
+                        "MANAGEMENT_PORT", String.valueOf(gatewayPort)));
 
         Platform platform = new Platform(postgres, kafka, keycloak, new Tokens(issuer),
                 catalog, customer, order, shipping, payment, gateway);

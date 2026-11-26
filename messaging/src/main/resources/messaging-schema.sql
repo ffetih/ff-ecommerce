@@ -14,7 +14,9 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
     attempts         integer        NOT NULL DEFAULT 0,
     next_attempt_at  timestamptz    NOT NULL DEFAULT now(),
     last_error       text,
-    published_at     timestamptz
+    published_at     timestamptz,
+    -- W3C trace context of the work that wrote the row; the relay continues that trace (ADR-0011).
+    traceparent      text
 );
 
 -- The relay only ever looks at unpublished rows, per (topic, key) in id order.

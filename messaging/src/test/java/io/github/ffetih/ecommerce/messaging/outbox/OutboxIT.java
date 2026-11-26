@@ -127,7 +127,12 @@ class OutboxIT {
             outbox.append(healthyTopic, "order-2", "test.step", 1, new Step("order-2", 1));
         });
 
+        Instant started = Instant.now();
         relay.relayOnce();
+
+        // The attempt on the missing topic gave up after the send timeout (2 s here), not after Kafka's
+        // default max.block.ms of 60 s: that wait would hold every other key too (ProducerBlockLimit).
+        assertThat(Duration.between(started, Instant.now())).isLessThan(Duration.ofSeconds(10));
 
         // The healthy key went through; the failed key is parked with its successor queued behind it.
         assertThat(consume(healthyTopic, 1, Duration.ofSeconds(10))).hasSize(1);
