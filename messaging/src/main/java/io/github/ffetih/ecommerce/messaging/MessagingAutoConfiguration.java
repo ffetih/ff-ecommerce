@@ -9,12 +9,14 @@ import io.github.ffetih.ecommerce.messaging.inbox.MalformedEventException;
 import io.github.ffetih.ecommerce.messaging.outbox.Outbox;
 import io.github.ffetih.ecommerce.messaging.outbox.OutboxMetrics;
 import io.github.ffetih.ecommerce.messaging.outbox.OutboxRelay;
+import io.github.ffetih.ecommerce.messaging.outbox.ProducerBlockLimit;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.observation.ObservationRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
@@ -31,6 +33,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import javax.sql.DataSource;
 import java.time.Clock;
+import java.time.Duration;
 
 /** Registers the outbox, relay, inbox and consumer error handling for any service that depends on this module. */
 @AutoConfiguration
@@ -57,6 +60,19 @@ public class MessagingAutoConfiguration {
         return new OutboxRelay(JdbcClient.create(dataSource), kafka,
                 new TransactionTemplate(transactionManager), properties.outbox(),
                 observations.getIfUnique(() -> ObservationRegistry.NOOP));
+    }
+
+    /**
+     * One relay attempt may take at most the send timeout, including the wait for topic metadata
+     * ({@link ProducerBlockLimit}). Static and reading the environment directly, because a bean post
+     * processor is created before configuration properties are bound.
+     */
+    @Bean
+    static ProducerBlockLimit producerBlockLimit(Environment environment) {
+        Duration sendTimeout = Binder.get(environment)
+                .bind("ecommerce.messaging.outbox.send-timeout", Duration.class)
+                .orElse(Duration.ofSeconds(5));
+        return new ProducerBlockLimit(sendTimeout);
     }
 
     /** Bound to the service's meter registry by Spring Boot, when the service has one (actuator). */

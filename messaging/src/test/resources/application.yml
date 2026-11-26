@@ -17,10 +17,6 @@ spring:
     # The relay's tracing test reads the traceparent the producer observation writes into each record.
     template:
       observation-enabled: true
-    producer:
-      properties:
-        # Fail fast when a topic does not exist (auto-creation is off in these tests).
-        max.block.ms: 3000
 
 ecommerce:
   messaging:
@@ -28,6 +24,8 @@ ecommerce:
       # Tests call relayOnce() directly, so runs are deterministic.
       relay-enabled: false
       initial-backoff: 200ms
+      # Also the longest a send may block on a missing topic (ProducerBlockLimit): auto-creation is off here.
+      send-timeout: 2s
       # Small batches force two relays to share the work in the competition test.
       batch-size: 4
       max-per-key: 5
