@@ -43,8 +43,18 @@ class ApiExceptionHandler {
         return problem(HttpStatusCode.valueOf(422), "Return refused", ex.getMessage());
     }
 
+    /**
+     * Two requests changed the same order or return at the same moment, and this one lost. The ORM's
+     * message names tables and columns: it stays in the log, the client gets a plain answer.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ProblemDetail concurrentChange(ObjectOptimisticLockingFailureException ex) {
+        return problem(HttpStatus.CONFLICT, "Conflict",
+                "Changed by another request at the same moment; read it again before retrying");
+    }
+
     @ExceptionHandler({IdempotencyKeyReusedException.class, IllegalOrderTransitionException.class,
-            IllegalReturnTransitionException.class, ObjectOptimisticLockingFailureException.class})
+            IllegalReturnTransitionException.class})
     ProblemDetail conflict(RuntimeException ex) {
         return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
     }
