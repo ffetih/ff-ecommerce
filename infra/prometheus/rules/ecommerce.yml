@@ -6,7 +6,8 @@ groups:
   - name: ecommerce
     rules:
       - alert: ServiceDown
-        expr: up == 0
+        # Our six only: in Kubernetes Prometheus also scrapes its own stack and the kubelet.
+        expr: up{service=~".+-service|gateway"} == 0
         for: 1m
         labels:
           severity: critical
