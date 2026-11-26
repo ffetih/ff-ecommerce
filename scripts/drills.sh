@@ -48,6 +48,13 @@ dl() {
     | jq -c '[.measurements[0].value, .availableTags]'
 }
 
+# order-service's outbox: messages waiting for Kafka, and how long the oldest has waited (seconds).
+outbox() {
+  for m in outbox.pending outbox.oldest.pending.age; do
+    printf '%-28s %s\n' $m "$(curl -s -H "Authorization: Bearer $ADMIN" localhost:8083/actuator/metrics/$m | jq '.measurements[0].value')"
+  done
+}
+
 # Publishes an event as if a service had sent it: send_event <topic> <key> <type> <data-json>
 send_event() {
   local msg
