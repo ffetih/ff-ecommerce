@@ -91,11 +91,47 @@ dispatch() {
     -H "Authorization: Bearer $ADMIN"
 }
 
-# payment-service's view of an order: the payment row and its ledger entries (payment-service has no API).
+# payment-service's view of an order: the payment row, its ledger entries and its refunds (no API there).
 payment() {
   docker compose exec -T -e PGPASSWORD=payment_service postgres psql -h localhost -U payment_service -d payment_db -q \
-    -c "select status, void_requested, provider_reference is not null as held, failure_reason from payments where order_id = '$1'" \
+    -c "select status, void_requested, provider_reference is not null as held, refunded_amount, failure_reason from payments where order_id = '$1'" \
     -c "select t.kind, e.account, e.amount, e.currency from ledger_transactions t
           join ledger_entries e on e.transaction_id = t.id join payments p on p.id = t.payment_id
-         where p.order_id = '$1' order by t.booked_at, e.line_number"
+         where p.order_id = '$1' order by t.booked_at, e.line_number" \
+    -c "select r.status, r.amount, r.failure_reason from refunds r where r.order_id = '$1' order by r.created_at"
+}
+
+# --- returns (s09) ---------------------------------------------------------------------------
+
+# Places an order for <quantity> units of $SKU as bob, ships and delivers it, prints the order id.
+delivered() {
+  local order ship
+  order=$(curl -s -X POST $GW/orders -H "Authorization: Bearer $BOB" -H "$J" -H "Idempotency-Key: $(uuid)" \
+    -d "{\"cardToken\":\"${2:-tok_ok}\",\"lines\":[{\"sku\":\"$SKU\",\"quantity\":${1:-1}}]}" | jq -r .id)
+  sleep 2
+  ship=$(curl -s "$GW/shipments?orderId=$order" -H "Authorization: Bearer $ADMIN" | jq -r .id)
+  curl -s -o /dev/null -X POST $GW/shipments/$ship/dispatch -H "Authorization: Bearer $ADMIN"
+  sleep 2
+  curl -s -o /dev/null -X POST $GW/shipments/$ship/deliver -H "Authorization: Bearer $ADMIN"
+  sleep 1
+  echo $order
+}
+
+# Asks to return <quantity> units of $SKU of an order as bob: prints the HTTP status and the return id.
+ret() {
+  curl -s -w ' %{http_code}' -X POST $GW/orders/$1/returns -H "Authorization: Bearer $BOB" -H "$J" \
+    -H "Idempotency-Key: $(uuid)" -d "{\"lines\":[{\"sku\":\"$SKU\",\"quantity\":${2:-1}}],\"reason\":\"drill\"}" \
+    | sed -E 's/^(.*) ([0-9]{3})$/\2 \1/' | { read -r code body; echo "return   -> $code $(echo "$body" | jq -r '.id // .detail')"; }
+}
+
+# The back office receives a returned parcel: prints the HTTP status and the return's status.
+receive() {
+  curl -s -w ' %{http_code}' -X POST $GW/returns/$1/receive -H "Authorization: Bearer $ADMIN" \
+    | sed -E 's/^(.*) ([0-9]{3})$/\2 \1/' | { read -r code body; echo "receive  -> $code $(echo "$body" | jq -r '.detail // .status')"; }
+}
+
+# An order's returns and how many units of each SKU they hold.
+returns() {
+  curl -s $GW/orders/$1/returns -H "Authorization: Bearer $BOB" \
+    | jq -c '{returns: [.returns[] | {id: .id[0:8], status, refund: .refundAmount}], returnedUnits}'
 }
