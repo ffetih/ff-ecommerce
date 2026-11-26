@@ -1,0 +1,179 @@
+# Image automation (ADR-0013): a new image on main reaches the cluster through Git, not through a
+# kubectl command. Three steps, each a Flux controller:
+#   ImageRepository        scans the registry for the service's tags (every minute, anonymously: public)
+#   ImagePolicy            picks the newest main-<run>-<sha> tag; the CI run number makes tags sortable
+#   ImageUpdateAutomation  writes that tag into the overlay (the $imagepolicy markers) and pushes a commit
+# Then the commit is deployed like any other: the apps Kustomization applies it.
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: catalog-service
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/catalog-service
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: catalog-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: catalog-service
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: customer-service
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/customer-service
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: customer-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: customer-service
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: order-service
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/order-service
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: order-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: order-service
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: payment-service
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/payment-service
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: payment-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: payment-service
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: shipping-service
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/shipping-service
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: shipping-service
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: shipping-service
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: gateway
+  namespace: flux-system
+spec:
+  image: ghcr.io/ffetih/ff-ecommerce/gateway
+  interval: 1m
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: gateway
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: gateway
+  filterTags:
+    pattern: '^main-(?P<run>[0-9]+)-[a-f0-9]{7}$'   # only images built from main
+    extract: '$run'
+  policy:
+    numerical:
+      order: asc                                     # the highest run number wins
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageUpdateAutomation
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  interval: 1m
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  git:
+    checkout:
+      ref:
+        branch: sprint/s12-kubernetes-gitops   # the branch Flux follows; switched to main with gotk-sync.yaml
+    push:
+      branch: sprint/s12-kubernetes-gitops
+    commit:
+      author:
+        name: fluxcdbot
+        email: fluxcdbot@users.noreply.github.com
+      messageTemplate: |
+        deploy(local): roll out images from main
+
+        {{ range .Changed.Changes -}}
+        {{ .OldValue }} -> {{ .NewValue }}
+        {{ end -}}
+  update:
+    path: ./deploy/apps/overlays/local
+    strategy: Setters                          # only lines carrying a $imagepolicy marker change

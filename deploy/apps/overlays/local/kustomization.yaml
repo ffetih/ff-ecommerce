@@ -27,11 +27,18 @@ secretGenerator:
     options:
       disableNameSuffixHash: true
 
-# The images CI published from main (tag = short commit SHA). Flux image automation takes this over later.
+# The images CI published from main. Flux image automation keeps the tags current: it rewrites each
+# newTag that carries a $imagepolicy marker (deploy/clusters/local/image-automation.yaml) and commits.
 images:
-  - { name: ghcr.io/ffetih/ff-ecommerce/catalog-service,  newTag: d59cf0e }
-  - { name: ghcr.io/ffetih/ff-ecommerce/customer-service, newTag: d59cf0e }
-  - { name: ghcr.io/ffetih/ff-ecommerce/order-service,    newTag: d59cf0e }
-  - { name: ghcr.io/ffetih/ff-ecommerce/payment-service,  newTag: d59cf0e }
-  - { name: ghcr.io/ffetih/ff-ecommerce/shipping-service, newTag: d59cf0e }
-  - { name: ghcr.io/ffetih/ff-ecommerce/gateway,          newTag: d59cf0e }
+  - name: ghcr.io/ffetih/ff-ecommerce/catalog-service
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:catalog-service:tag"}
+  - name: ghcr.io/ffetih/ff-ecommerce/customer-service
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:customer-service:tag"}
+  - name: ghcr.io/ffetih/ff-ecommerce/order-service
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:order-service:tag"}
+  - name: ghcr.io/ffetih/ff-ecommerce/payment-service
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:payment-service:tag"}
+  - name: ghcr.io/ffetih/ff-ecommerce/shipping-service
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:shipping-service:tag"}
+  - name: ghcr.io/ffetih/ff-ecommerce/gateway
+    newTag: d59cf0e # {"$imagepolicy": "flux-system:gateway:tag"}
