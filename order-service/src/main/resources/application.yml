@@ -72,3 +72,6 @@ ecommerce:
       confirmed-after: 3d
       scan-interval: 1m
       batch-size: 100
+    # Goods can be returned within this time after delivery (ADR-0010).
+    returns:
+      window: 14d

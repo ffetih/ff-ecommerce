@@ -245,7 +245,7 @@ class OrderTest {
     @Test
     void anOrderFromBeforePaymentsShipsWithoutOne() {
         Order legacy = new Order(UUID.randomUUID(), CUSTOMER, List.of(line("KB-01", 1, "10.00")), Money.of("10.00", "EUR"),
-                "Somewhere", Order.Status.CONFIRMED, null, null, Order.PaymentStatus.NOT_REQUESTED, NOW, NOW);
+                "Somewhere", Order.Status.CONFIRMED, null, null, Order.PaymentStatus.NOT_REQUESTED, null, NOW, NOW);
 
         assertThat(legacy.ship(NOW).payment()).isEqualTo(Order.PaymentStatus.NOT_REQUESTED);
     }

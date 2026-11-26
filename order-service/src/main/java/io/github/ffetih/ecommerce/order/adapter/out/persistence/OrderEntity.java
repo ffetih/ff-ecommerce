@@ -67,6 +67,8 @@ class OrderEntity {
     @Column(nullable = false, length = 64)
     private String requestHash;
 
+    private Instant deliveredAt;
+
     @Column(nullable = false)
     private Instant createdAt;
 
@@ -105,6 +107,7 @@ class OrderEntity {
         this.status = order.status();
         this.cancellationReason = order.cancellationReason();
         this.payment = order.payment();
+        this.deliveredAt = order.deliveredAt();
         this.updatedAt = order.updatedAt();
     }
 
@@ -118,6 +121,6 @@ class OrderEntity {
                 .map(line -> new OrderLine(Sku.of(line.sku()), line.quantity(), new Money(line.unitPrice(), orderCurrency)))
                 .toList();
         return new Order(id, customerId, domainLines, new Money(totalAmount, orderCurrency), shippingAddress,
-                status, cancellationReason, cardToken, payment, createdAt, updatedAt);
+                status, cancellationReason, cardToken, payment, deliveredAt, createdAt, updatedAt);
     }
 }
