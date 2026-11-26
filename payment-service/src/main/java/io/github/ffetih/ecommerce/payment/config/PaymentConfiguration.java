@@ -5,11 +5,13 @@ import io.github.ffetih.ecommerce.events.payment.AuthorizePayment;
 import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
 import io.github.ffetih.ecommerce.messaging.MessagingTopics;
 import io.github.ffetih.ecommerce.payment.application.PaymentService;
+import io.github.ffetih.ecommerce.payment.application.RefundService;
 import io.github.ffetih.ecommerce.payment.application.port.Ledger;
 import io.github.ffetih.ecommerce.payment.application.port.PaymentEvents;
 import io.github.ffetih.ecommerce.payment.application.port.PaymentProvider;
 import io.github.ffetih.ecommerce.payment.application.port.PaymentRepository;
 import io.github.ffetih.ecommerce.payment.application.port.ProcessedEvents;
+import io.github.ffetih.ecommerce.payment.application.port.RefundRepository;
 import io.github.ffetih.ecommerce.payment.application.port.Transactions;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -34,6 +36,15 @@ class PaymentConfiguration {
                                   PaymentProperties properties) {
         var resolver = properties.resolver();
         return new PaymentService(payments, ledger, provider, events, processedEvents, transactions, clock,
+                new PaymentService.Settings(resolver.staleAfter(), resolver.batchSize()));
+    }
+
+    @Bean
+    RefundService refundService(PaymentRepository payments, RefundRepository refunds, Ledger ledger, PaymentProvider provider,
+                                PaymentEvents events, ProcessedEvents processedEvents, Transactions transactions, Clock clock,
+                                PaymentProperties properties) {
+        var resolver = properties.resolver();
+        return new RefundService(payments, refunds, ledger, provider, events, processedEvents, transactions, clock,
                 new PaymentService.Settings(resolver.staleAfter(), resolver.batchSize()));
     }
 

@@ -17,4 +17,7 @@ public interface PaymentProvider {
 
     /** Releases the hold without taking any money. */
     ProviderResult voidAuthorization(String idempotencyKey, String authorization);
+
+    /** Gives part or all of the captured money back. */
+    ProviderResult refund(String idempotencyKey, String authorization, Money amount);
 }

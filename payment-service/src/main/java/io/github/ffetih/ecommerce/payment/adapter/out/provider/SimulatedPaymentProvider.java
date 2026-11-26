@@ -5,6 +5,7 @@ import io.github.ffetih.ecommerce.payment.application.port.ProviderResult;
 import io.github.ffetih.ecommerce.payment.domain.Money;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *   <li>{@code tok_slow}: the first authorize call is approved but its answer is lost (Unknown);
  *       asking again with the same key returns the approval.</li>
  *   <li>{@code tok_capture_fails}: approved, but the capture is declined later.</li>
+ *   <li>{@code tok_refund_fails}: approved and captured, but refunds are declined.</li>
  *   <li>anything else: declined as an unknown card.</li>
  * </ul>
  * Like a real provider it acts at most once per idempotency key and repeats the first answer. Unlike
@@ -31,13 +33,18 @@ public class SimulatedPaymentProvider implements PaymentProvider {
     public static final String DECLINE = "tok_decline";
     public static final String SLOW = "tok_slow";
     public static final String CAPTURE_FAILS = "tok_capture_fails";
+    public static final String REFUND_FAILS = "tok_refund_fails";
 
     private enum State { AUTHORIZED, CAPTURED, VOIDED }
 
-    private record Authorization(String cardToken, Money amount, State state) {
+    private record Authorization(String cardToken, Money amount, State state, BigDecimal refunded) {
 
         Authorization moveTo(State next) {
-            return new Authorization(cardToken, amount, next);
+            return new Authorization(cardToken, amount, next, refunded);
+        }
+
+        Authorization refund(BigDecimal more) {
+            return new Authorization(cardToken, amount, state, refunded.add(more));
         }
     }
 
@@ -52,9 +59,9 @@ public class SimulatedPaymentProvider implements PaymentProvider {
         ProviderResult answer = answers.computeIfAbsent(idempotencyKey, key -> {
             firstCall.set(true);
             return switch (cardToken) {
-                case OK, SLOW, CAPTURE_FAILS -> {
+                case OK, SLOW, CAPTURE_FAILS, REFUND_FAILS -> {
                     String reference = "AUTH-" + UUID.randomUUID();
-                    authorizations.put(reference, new Authorization(cardToken, amount, State.AUTHORIZED));
+                    authorizations.put(reference, new Authorization(cardToken, amount, State.AUTHORIZED, BigDecimal.ZERO));
                     yield new ProviderResult.Approved(reference);
                 }
                 case DECLINE -> new ProviderResult.Declined("Card declined");
@@ -101,6 +108,29 @@ public class SimulatedPaymentProvider implements PaymentProvider {
             authorizations.put(authorization, hold.moveTo(State.VOIDED));
             return new ProviderResult.Approved("VOID-" + UUID.randomUUID());
         });
+    }
+
+    @Override
+    public ProviderResult refund(String idempotencyKey, String authorization, Money amount) {
+        return answers.computeIfAbsent(idempotencyKey, key -> {
+            Authorization payment = authorizations.get(authorization);
+            if (payment == null || payment.state() != State.CAPTURED) {
+                return new ProviderResult.Declined("Nothing captured to refund");
+            }
+            if (REFUND_FAILS.equals(payment.cardToken())) {
+                return new ProviderResult.Declined("Card account closed");
+            }
+            if (payment.refunded().add(amount.amount()).compareTo(payment.amount().amount()) > 0) {
+                return new ProviderResult.Declined("Refunds exceed the captured amount");
+            }
+            authorizations.put(authorization, payment.refund(amount.amount()));
+            return new ProviderResult.Approved("REF-" + UUID.randomUUID());
+        });
+    }
+
+    /** Money actually given back on an authorization: a retried refund must not add to it. */
+    BigDecimal refunded(String authorization) {
+        return authorizations.get(authorization).refunded();
     }
 
     /** How many holds were really placed on cards: a retried call must not add one. */

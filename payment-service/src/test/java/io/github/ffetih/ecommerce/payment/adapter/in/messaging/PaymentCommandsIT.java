@@ -5,6 +5,9 @@ import io.github.ffetih.ecommerce.events.payment.CapturePayment;
 import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
 import io.github.ffetih.ecommerce.events.payment.PaymentCaptured;
 import io.github.ffetih.ecommerce.events.payment.PaymentDeclined;
+import io.github.ffetih.ecommerce.events.payment.PaymentRefundFailed;
+import io.github.ffetih.ecommerce.events.payment.PaymentRefunded;
+import io.github.ffetih.ecommerce.events.payment.RefundPayment;
 import io.github.ffetih.ecommerce.events.payment.PaymentVoided;
 import io.github.ffetih.ecommerce.events.payment.VoidPayment;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
@@ -98,6 +101,24 @@ class PaymentCommandsIT {
 
         assertThat(paymentEventTypes(orderId, 2)).containsExactly(PaymentAuthorized.TYPE, PaymentVoided.TYPE);
         assertThat(payments.forOrder(orderId).orElseThrow().status()).isEqualTo(Payment.Status.VOIDED);
+    }
+
+    @Test
+    void refundsAReturnOnceAndRefusesWhatWouldExceedTheCapture() throws Exception {
+        UUID orderId = UUID.randomUUID();
+        send(orderId, AuthorizePayment.TYPE, authorize(orderId, SimulatedPaymentProvider.OK));
+        send(orderId, CapturePayment.TYPE, new CapturePayment(orderId));
+        UUID returnId = UUID.randomUUID();
+
+        send(orderId, RefundPayment.TYPE, new RefundPayment(orderId, returnId, new BigDecimal("300.00"), "TRY"));
+        send(orderId, RefundPayment.TYPE, new RefundPayment(orderId, returnId, new BigDecimal("300.00"), "TRY"));
+        send(orderId, RefundPayment.TYPE, new RefundPayment(orderId, UUID.randomUUID(), new BigDecimal("100.00"), "TRY"));
+
+        assertThat(paymentEventTypes(orderId, 4)).containsExactly(PaymentAuthorized.TYPE, PaymentCaptured.TYPE,
+                PaymentRefunded.TYPE, PaymentRefundFailed.TYPE);
+        Payment payment = payments.forOrder(orderId).orElseThrow();
+        assertThat(ledger.transactionsOf(payment.id())).extracting(LedgerTransaction::kind)
+                .containsExactly(LedgerTransaction.Kind.CAPTURE, LedgerTransaction.Kind.REFUND);
     }
 
     // --- helpers -----------------------------------------------------------------------------

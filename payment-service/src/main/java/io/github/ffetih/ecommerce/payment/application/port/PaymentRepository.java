@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.payment.application.port;
 
 import io.github.ffetih.ecommerce.payment.domain.Payment;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -21,4 +22,19 @@ public interface PaymentRepository {
     List<Payment> findInFlight(Instant updatedBefore, int limit);
 
     void save(Payment payment);
+
+    /**
+     * Counts {@code amount} more as refunded, in one conditional statement: only for a captured payment,
+     * and only if all its refunds together stay within the captured amount. Call inside the transaction
+     * that stores the refund.
+     *
+     * @return {@code false}, changing nothing, if the payment is not captured or the limit would be exceeded
+     */
+    boolean reserveRefund(UUID paymentId, BigDecimal amount);
+
+    /** A declined refund's amount can be refunded again. */
+    void releaseRefund(UUID paymentId, BigDecimal amount);
+
+    /** Refunded or being refunded, as counted by {@link #reserveRefund}. */
+    BigDecimal refundedAmount(UUID paymentId);
 }

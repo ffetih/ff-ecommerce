@@ -4,10 +4,13 @@ import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
 import io.github.ffetih.ecommerce.events.payment.PaymentCaptureFailed;
 import io.github.ffetih.ecommerce.events.payment.PaymentCaptured;
 import io.github.ffetih.ecommerce.events.payment.PaymentDeclined;
+import io.github.ffetih.ecommerce.events.payment.PaymentRefundFailed;
+import io.github.ffetih.ecommerce.events.payment.PaymentRefunded;
 import io.github.ffetih.ecommerce.events.payment.PaymentVoided;
 import io.github.ffetih.ecommerce.messaging.outbox.Outbox;
 import io.github.ffetih.ecommerce.payment.application.port.PaymentEvents;
 import io.github.ffetih.ecommerce.payment.domain.Payment;
+import io.github.ffetih.ecommerce.payment.domain.Refund;
 import org.springframework.stereotype.Component;
 
 /** Keyed by order id, so one order's payment events stay in order on one partition. */
@@ -47,6 +50,20 @@ class OutboxPaymentEvents implements PaymentEvents {
     @Override
     public void voided(Payment payment) {
         append(payment, PaymentVoided.TYPE, PaymentVoided.VERSION, new PaymentVoided(payment.id(), payment.orderId()));
+    }
+
+    @Override
+    public void refunded(Refund refund) {
+        outbox.append(PaymentAuthorized.TOPIC, refund.orderId().toString(), PaymentRefunded.TYPE, PaymentRefunded.VERSION,
+                new PaymentRefunded(refund.paymentId(), refund.orderId(), refund.returnId(), refund.amount().amount(),
+                        refund.amount().currency().getCurrencyCode()));
+    }
+
+    @Override
+    public void refundFailed(Refund refund) {
+        outbox.append(PaymentAuthorized.TOPIC, refund.orderId().toString(), PaymentRefundFailed.TYPE,
+                PaymentRefundFailed.VERSION,
+                new PaymentRefundFailed(refund.paymentId(), refund.orderId(), refund.returnId(), refund.failureReason()));
     }
 
     private void append(Payment payment, String type, int version, Object data) {
