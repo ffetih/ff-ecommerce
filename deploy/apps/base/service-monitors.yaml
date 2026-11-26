@@ -1,0 +1,36 @@
+# Tell Prometheus what to scrape. The Prometheus Operator turns these into scrape configs and adds the
+# labels namespace, service, pod and job (= the Service name), so the alerts and dashboard written for
+# compose's "service" label work unchanged.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: services
+spec:
+  selector:
+    matchExpressions:
+      - { key: app, operator: In, values: [catalog-service, customer-service, order-service, payment-service, shipping-service] }
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+      # /actuator/prometheus needs the "monitoring" role (s10): Prometheus logs in as the "prometheus"
+      # client with client credentials and refreshes its token itself. The token endpoint is the internal
+      # one; the token's issuer is still the public one the services expect.
+      oauth2:
+        clientId:
+          secret: { name: prometheus-oauth, key: client-id }
+        clientSecret: { name: prometheus-oauth, key: client-secret }
+        tokenUrl: http://keycloak.ecommerce.svc:8080/realms/ecommerce/protocol/openid-connect/token
+---
+# The gateway checks no tokens; its actuator is on the management port, which the Ingress never routes.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gateway
+spec:
+  selector:
+    matchLabels: { app: gateway }
+  endpoints:
+    - port: management
+      path: /actuator/prometheus
+      interval: 15s

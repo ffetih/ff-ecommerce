@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - strimzi.yaml
   - cloudnative-pg.yaml
+  - kube-prometheus-stack.yaml

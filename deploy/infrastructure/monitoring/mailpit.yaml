@@ -1,0 +1,52 @@
+# Mailpit: an SMTP server that keeps every mail and shows it in a web inbox. Alertmanager sends its
+# alert mails here (port 1025); you read them at mail.localtest.me:8888. Nothing leaves the machine.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mailpit
+  labels: { app: mailpit }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mailpit }
+  template:
+    metadata:
+      labels: { app: mailpit }
+    spec:
+      containers:
+        - name: mailpit
+          image: axllent/mailpit:v1.34.0
+          ports:
+            - { name: smtp, containerPort: 1025 }
+            - { name: http, containerPort: 8025 }
+          readinessProbe:
+            tcpSocket: { port: smtp }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mailpit
+spec:
+  selector: { app: mailpit }
+  ports:
+    - { name: smtp, port: 1025, targetPort: smtp }
+    - { name: http, port: 8025, targetPort: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mailpit
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: mail.localtest.me
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: mailpit, port: { name: http } }

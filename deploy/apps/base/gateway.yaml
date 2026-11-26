@@ -46,7 +46,9 @@ apiVersion: v1
 kind: Service
 metadata:
   name: gateway
+  labels: { app: gateway }               # what the ServiceMonitors select on
 spec:
   selector: { app: gateway }
   ports:
     - { name: http, port: 8080, targetPort: http }
+    - { name: management, port: 8089, targetPort: management }   # scraped by Prometheus, not routed by the Ingress

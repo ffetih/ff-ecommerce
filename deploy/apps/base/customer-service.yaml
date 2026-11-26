@@ -44,6 +44,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: customer-service
+  labels: { app: customer-service }               # what the ServiceMonitors select on
 spec:
   selector: { app: customer-service }
   ports:

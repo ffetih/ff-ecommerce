@@ -10,3 +10,4 @@ resources:
   - payment-service.yaml
   - shipping-service.yaml
   - gateway.yaml
+  - service-monitors.yaml

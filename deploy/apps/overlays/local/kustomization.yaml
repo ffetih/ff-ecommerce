@@ -17,7 +17,15 @@ configMapGenerator:
       - SPRING_KAFKA_ADMIN_AUTO_CREATE=false      # topics are KafkaTopic resources (base/kafka-topics.yaml)
       - ISSUER_URI=http://keycloak.localtest.me:8888/realms/ecommerce
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI=http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
-      - TRACING_SAMPLING=0.0                      # no Jaeger in the cluster yet (s12-4)
+      - OTLP_TRACES_ENDPOINT=http://jaeger.monitoring:4318/v1/traces
+
+# Prometheus's login for the scrape (ServiceMonitor "services"): the "prometheus" client of the realm.
+# A fixed name, because the ServiceMonitor refers to it and Kustomize doesn't rewrite that reference.
+secretGenerator:
+  - name: prometheus-oauth
+    literals: [client-id=prometheus, client-secret=prometheus-secret]
+    options:
+      disableNameSuffixHash: true
 
 # The images CI published from main (tag = short commit SHA). Flux image automation takes this over later.
 images:

@@ -1,0 +1,19 @@
+# Layer: our additions to the monitoring stack (alerts, dashboard, Jaeger, Mailpit). PrometheusRule is a
+# kind kube-prometheus-stack installs, so this waits for the controllers layer.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: monitoring
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-controllers
+  path: ./deploy/infrastructure/monitoring
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  prune: true
+  wait: true

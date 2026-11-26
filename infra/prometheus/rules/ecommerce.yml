@@ -34,9 +34,10 @@ groups:
           description: "Reason: {{ $labels.exception }}. Inspect {{ $labels.topic }}-dlt and replay or fix by hand."
 
       - alert: HighServerErrorRate
+        # namespace is kept for Alertmanager's routing in Kubernetes; compose's metrics have none.
         expr: |
-          sum by (service) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
-            / sum by (service) (rate(http_server_requests_seconds_count[5m])) > 0.05
+          sum by (namespace, service) (rate(http_server_requests_seconds_count{status=~"5.."}[5m]))
+            / sum by (namespace, service) (rate(http_server_requests_seconds_count[5m])) > 0.05
         for: 5m
         labels:
           severity: warning

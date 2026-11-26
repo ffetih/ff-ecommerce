@@ -71,6 +71,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: shipping-service
+  labels: { app: shipping-service }               # what the ServiceMonitors select on
 spec:
   selector: { app: shipping-service }
   ports:
