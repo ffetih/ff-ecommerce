@@ -155,6 +155,10 @@ metadata:
   namespace: flux-system
 spec:
   interval: 1m
+  # CI pushes the six images one after another and each ImageRepository scans on its own timer, so the
+  # policies change over a minute or two. Without a delay that was one commit per service (s12-5);
+  # with it, changes arriving within 3 minutes go into one commit, one rollout.
+  policyChangeDelay: 3m
   sourceRef:
     kind: GitRepository
     name: flux-system
