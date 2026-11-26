@@ -76,3 +76,26 @@ race() {
   wait; sleep 3
   show $ORDER
 }
+
+# Cancels an order as bob and prints the HTTP status.
+cancel() {
+  curl -s -o /dev/null -w 'cancel   -> %{http_code}\n' -X POST $GW/orders/$1/cancel \
+    -H "Authorization: Bearer $BOB" -H "$J" -d '{"reason":"changed my mind"}'
+}
+
+# Dispatches an order's shipment as the warehouse and prints the HTTP status.
+dispatch() {
+  local ship
+  ship=$(curl -s "$GW/shipments?orderId=$1" -H "Authorization: Bearer $ADMIN" | jq -r .id)
+  curl -s -o /dev/null -w 'dispatch -> %{http_code}\n' -X POST $GW/shipments/$ship/dispatch \
+    -H "Authorization: Bearer $ADMIN"
+}
+
+# payment-service's view of an order: the payment row and its ledger entries (payment-service has no API).
+payment() {
+  docker compose exec -T -e PGPASSWORD=payment_service postgres psql -h localhost -U payment_service -d payment_db -q \
+    -c "select status, void_requested, provider_reference is not null as held, failure_reason from payments where order_id = '$1'" \
+    -c "select t.kind, e.account, e.amount, e.currency from ledger_transactions t
+          join ledger_entries e on e.transaction_id = t.id join payments p on p.id = t.payment_id
+         where p.order_id = '$1' order by t.booked_at, e.line_number"
+}
