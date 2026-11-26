@@ -56,6 +56,15 @@ outbox() {
   done
 }
 
+# The Jaeger link of an order's trace: trace <order>. The trace id is the second part of the
+# traceparent order-service stored with the order's first event (needs the observability profile).
+trace() {
+  local id
+  id=$(docker compose exec -T -e PGPASSWORD=order_service postgres psql -h localhost -U order_service -d order_db -tAc \
+    "SELECT split_part(traceparent,'-',2) FROM outbox_messages WHERE message_key='$1' ORDER BY id LIMIT 1")
+  echo "http://localhost:16686/trace/${id:-none}"
+}
+
 # Publishes an event as if a service had sent it: send_event <topic> <key> <type> <data-json>
 send_event() {
   local msg
