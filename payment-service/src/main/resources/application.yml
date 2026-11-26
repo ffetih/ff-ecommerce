@@ -42,3 +42,10 @@ management:
       exposure:
         include: health,info,metrics
 
+ecommerce:
+  payments:
+    # Provider calls without an answer are asked again with the same idempotency key (ADR-0009).
+    resolver:
+      stale-after: 30s
+      scan-interval: 15s
+      batch-size: 50

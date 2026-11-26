@@ -35,6 +35,19 @@ public class TestcontainersConfiguration {
         return registry -> registry.add("spring.security.oauth2.resourceserver.jwt.issuer-uri", TOKENS::issuerUri);
     }
 
+    /**
+     * A resolver that asks again after half a second instead of 30. Set here, for every test class, so
+     * they all share one application context: two contexts would be two consumers in the command group,
+     * each with its own in-memory provider.
+     */
+    @Bean
+    DynamicPropertyRegistrar fastResolver() {
+        return registry -> {
+            registry.add("ecommerce.payments.resolver.stale-after", () -> "500ms");
+            registry.add("ecommerce.payments.resolver.scan-interval", () -> "250ms");
+        };
+    }
+
     public static TestTokenIssuer tokens() {
         return TOKENS;
     }

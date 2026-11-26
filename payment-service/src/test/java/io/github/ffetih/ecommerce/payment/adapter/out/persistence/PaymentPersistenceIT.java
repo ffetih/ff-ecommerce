@@ -28,8 +28,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Import(TestcontainersConfiguration.class)
 class PaymentPersistenceIT {
 
-    // Microseconds: PostgreSQL's timestamp precision, so a round trip compares equal.
-    private static final Instant NOW = Instant.now().truncatedTo(ChronoUnit.MICROS);
+    // An hour ahead: these payments are rows to read back, and a resolver running in another test's
+    // context must not see them as stale calls to finish. Microseconds: PostgreSQL's precision.
+    private static final Instant NOW = Instant.now().plus(1, ChronoUnit.HOURS).truncatedTo(ChronoUnit.MICROS);
     // A currency no other test uses, so balances start at zero.
     private static final Currency EUR = Currency.getInstance("EUR");
 

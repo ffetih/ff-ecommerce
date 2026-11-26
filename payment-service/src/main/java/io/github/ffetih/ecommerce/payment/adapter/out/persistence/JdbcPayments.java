@@ -11,6 +11,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,6 +43,19 @@ class JdbcPayments implements PaymentRepository {
                 .param("orderId", orderId)
                 .query(JdbcPayments::map)
                 .optional();
+    }
+
+    @Override
+    public List<Payment> findInFlight(Instant updatedBefore, int limit) {
+        return jdbc.sql("SELECT " + COLUMNS + """
+                         FROM payments
+                        WHERE status IN ('AUTHORIZING', 'CAPTURING', 'VOIDING') AND updated_at < :before
+                        ORDER BY updated_at
+                        LIMIT :limit""")
+                .param("before", utc(updatedBefore))
+                .param("limit", limit)
+                .query(JdbcPayments::map)
+                .list();
     }
 
     @Override
