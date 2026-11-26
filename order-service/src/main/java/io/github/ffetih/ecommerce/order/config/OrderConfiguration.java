@@ -18,6 +18,7 @@ import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
 import io.github.ffetih.ecommerce.order.application.port.PriceCatalog;
 import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
+import io.github.ffetih.ecommerce.order.application.port.ReturnEvents;
 import io.github.ffetih.ecommerce.order.application.port.ReturnRepository;
 import io.github.ffetih.ecommerce.order.application.port.ReturnedUnits;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
@@ -46,8 +47,9 @@ class OrderConfiguration {
 
     @Bean
     ReturnService returnService(OrderRepository orders, ReturnRepository returns, ReturnedUnits returnedUnits,
+                                ReturnEvents events, PaymentCommands payments, ProcessedEvents processedEvents,
                                 Transactions transactions, Clock clock, ReturnProperties properties) {
-        return new ReturnService(orders, returns, returnedUnits, transactions, clock,
+        return new ReturnService(orders, returns, returnedUnits, events, payments, processedEvents, transactions, clock,
                 new ReturnService.Settings(properties.window()));
     }
 

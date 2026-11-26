@@ -60,7 +60,8 @@ public record Return(
     /**
      * A return of a delivered order, within {@code window} of its delivery. Each line names a SKU of
      * the order and at most the ordered quantity; prices come from the order, never from the request.
-     * Only paid orders (or orders from before payments) can be refunded.
+     * Only an order whose payment was captured can be refunded; orders from before payments (s08) and
+     * orders whose money is overdue have nothing to give back.
      */
     public static Return request(Order order, List<Requested> requested, String reason, Duration window, Instant now) {
         if (order.status() != Order.Status.DELIVERED) {
@@ -70,7 +71,7 @@ public record Return(
             throw new ReturnNotAllowedException("Order " + order.id() + " was delivered more than "
                     + window.toDays() + " days ago; it can no longer be returned");
         }
-        if (order.payment() != Order.PaymentStatus.CAPTURED && order.payment() != Order.PaymentStatus.NOT_REQUESTED) {
+        if (order.payment() != Order.PaymentStatus.CAPTURED) {
             throw new ReturnNotAllowedException("Order " + order.id() + " has no captured payment to refund ("
                     + order.payment() + ")");
         }

@@ -7,6 +7,7 @@ import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import io.github.ffetih.ecommerce.order.domain.IllegalOrderTransitionException;
 import io.github.ffetih.ecommerce.order.domain.Money;
 import io.github.ffetih.ecommerce.order.domain.Order;
+import io.github.ffetih.ecommerce.order.domain.Return;
 import io.github.ffetih.ecommerce.order.domain.OrderLine;
 import io.github.ffetih.ecommerce.order.domain.Sku;
 import org.junit.jupiter.api.Test;
@@ -65,6 +66,11 @@ class OrderSagaServiceTest {
         @Override
         public void voidPayment(Order order) {
             published.add("void-payment");
+        }
+
+        @Override
+        public void refund(Return received) {
+            published.add("refund-payment");
         }
     };
     private final ProcessedEvents inbox = (consumer, eventId) -> processed.add(consumer + "/" + eventId);

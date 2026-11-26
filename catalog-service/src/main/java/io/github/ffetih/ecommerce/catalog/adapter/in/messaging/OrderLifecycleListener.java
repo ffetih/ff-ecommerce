@@ -1,10 +1,12 @@
 package io.github.ffetih.ecommerce.catalog.adapter.in.messaging;
 
 import io.github.ffetih.ecommerce.catalog.application.ReservationService;
+import io.github.ffetih.ecommerce.catalog.application.ReturnedStockService;
 import io.github.ffetih.ecommerce.catalog.domain.Reservation;
 import io.github.ffetih.ecommerce.catalog.domain.Sku;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.order.ReturnReceived;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import io.github.ffetih.ecommerce.messaging.inbox.EventReader;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -19,10 +21,12 @@ class OrderLifecycleListener {
 
     private final EventReader reader;
     private final ReservationService reservations;
+    private final ReturnedStockService returnedStock;
 
-    OrderLifecycleListener(EventReader reader, ReservationService reservations) {
+    OrderLifecycleListener(EventReader reader, ReservationService reservations, ReturnedStockService returnedStock) {
         this.reader = reader;
         this.reservations = reservations;
+        this.returnedStock = returnedStock;
     }
 
     @KafkaListener(topics = OrderPlaced.TOPIC, groupId = ReservationService.ORDER_EVENTS_CONSUMER)
@@ -38,6 +42,12 @@ class OrderLifecycleListener {
             case OrderCancelled.TYPE -> {
                 OrderCancelled cancelled = reader.data(event, OrderCancelled.class);
                 reservations.releaseForOrder(event.eventId(), cancelled.orderId());
+            }
+            case ReturnReceived.TYPE -> {
+                ReturnReceived received = reader.data(event, ReturnReceived.class);
+                returnedStock.returnReceived(event.eventId(), received.returnId(), received.lines().stream()
+                        .map(line -> new ReturnedStockService.Line(Sku.of(line.sku()), line.quantity()))
+                        .toList());
             }
             default -> {
                 // not relevant for catalog

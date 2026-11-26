@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.catalog.config;
 
 import io.github.ffetih.ecommerce.catalog.application.ProductService;
 import io.github.ffetih.ecommerce.catalog.application.ReservationService;
+import io.github.ffetih.ecommerce.catalog.application.ReturnedStockService;
 import io.github.ffetih.ecommerce.catalog.application.StockService;
 import io.github.ffetih.ecommerce.catalog.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.catalog.application.port.ProductRepository;
@@ -42,6 +43,12 @@ class CatalogConfiguration {
     StockService stockService(StockRepository stock, StockReceiptRepository receipts, StockEvents events,
                               Transactions transactions, Clock clock) {
         return new StockService(stock, receipts, events, transactions, clock);
+    }
+
+    @Bean
+    ReturnedStockService returnedStockService(StockRepository stock, StockReceiptRepository receipts, StockEvents events,
+                                              ProcessedEvents processedEvents, Transactions transactions, Clock clock) {
+        return new ReturnedStockService(stock, receipts, events, processedEvents, transactions, clock);
     }
 
     @Bean

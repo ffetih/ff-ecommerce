@@ -1,6 +1,9 @@
 package io.github.ffetih.ecommerce.order.application;
 
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
+import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
+import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
+import io.github.ffetih.ecommerce.order.application.port.ReturnEvents;
 import io.github.ffetih.ecommerce.order.application.port.ReturnRepository;
 import io.github.ffetih.ecommerce.order.application.port.ReturnedUnits;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
@@ -22,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.UnaryOperator;
 
 /**
  * Returns of delivered orders (ADR-0010).
@@ -30,6 +34,10 @@ import java.util.UUID;
  * same moment. The rule is therefore kept by the database: each requested line adds its units to a
  * per-line counter in one conditional statement ({@link ReturnedUnits#take}), in the transaction
  * that stores the return. If any line would exceed the ordered quantity, the whole request rolls back.
+ * <p>
+ * Receiving the parcel announces {@code return-received} (catalog restocks) and sends
+ * {@code refund-payment}, in the same transaction as the change; payment-service's answer moves the
+ * return to REFUNDED or REFUND_FAILED. A second "received" changes nothing and sends nothing.
  */
 public class ReturnService {
 
@@ -45,18 +53,27 @@ public class ReturnService {
     public record Settings(Duration window) {
     }
 
+    private static final System.Logger log = System.getLogger(ReturnService.class.getName());
+
     private final OrderRepository orders;
     private final ReturnRepository returns;
     private final ReturnedUnits returnedUnits;
+    private final ReturnEvents events;
+    private final PaymentCommands payments;
+    private final ProcessedEvents processedEvents;
     private final Transactions transactions;
     private final Clock clock;
     private final Settings settings;
 
     public ReturnService(OrderRepository orders, ReturnRepository returns, ReturnedUnits returnedUnits,
+                         ReturnEvents events, PaymentCommands payments, ProcessedEvents processedEvents,
                          Transactions transactions, Clock clock, Settings settings) {
         this.orders = orders;
         this.returns = returns;
         this.returnedUnits = returnedUnits;
+        this.events = events;
+        this.payments = payments;
+        this.processedEvents = processedEvents;
         this.transactions = transactions;
         this.clock = clock;
         this.settings = settings;
@@ -112,15 +129,48 @@ public class ReturnService {
                 .orElseThrow(() -> new ReturnNotFoundException(returnId)));
     }
 
-    /** The back office confirms the parcel has arrived. Repeating it changes nothing. */
+    /**
+     * The back office confirms the parcel has arrived: its units are stock again, and the refund starts.
+     * Repeating it changes nothing and sends nothing; two clicks at the same moment are settled by the
+     * return's version, so only one of them sends.
+     */
     public Return receive(UUID returnId) {
         return transactions.inTransaction(() -> {
             Return current = load(returnId);
             Return received = current.receive(clock.instant());
             if (received != current) {
                 returns.update(received);
+                events.returnReceived(received);
+                payments.refund(received);
             }
             return received;
+        });
+    }
+
+    /** {@code payment.payment-refunded}: the money for the return is back with the customer. */
+    public void refunded(UUID eventId, UUID returnId) {
+        applyPaymentAnswer(eventId, returnId, value -> value.refunded(clock.instant()));
+    }
+
+    /** {@code payment.payment-refund-failed}: the money could not be given back; operations decide. */
+    public void refundFailed(UUID eventId, UUID returnId, String reason) {
+        applyPaymentAnswer(eventId, returnId, value -> {
+            log.log(System.Logger.Level.WARNING, "Refund failed for return {0}: {1}", returnId, reason);
+            return value.refundFailed(clock.instant());
+        });
+    }
+
+    private void applyPaymentAnswer(UUID eventId, UUID returnId, UnaryOperator<Return> step) {
+        transactions.inTransaction(() -> {
+            if (!processedEvents.firstDelivery(OrderSagaService.PAYMENT_EVENTS_CONSUMER, eventId)) {
+                return null;
+            }
+            Return current = load(returnId);
+            Return next = step.apply(current);
+            if (next != current) {
+                returns.update(next);
+            }
+            return null;
         });
     }
 

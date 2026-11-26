@@ -1,5 +1,10 @@
 package io.github.ffetih.ecommerce.order.adapter.in.web;
 
+import io.github.ffetih.ecommerce.events.order.ReturnReceived;
+import io.github.ffetih.ecommerce.events.payment.PaymentAuthorized;
+import io.github.ffetih.ecommerce.events.payment.PaymentRefunded;
+import io.github.ffetih.ecommerce.events.payment.RefundPayment;
+import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import io.github.ffetih.ecommerce.order.domain.Money;
@@ -16,10 +21,12 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -58,6 +65,9 @@ class ReturnApiIT {
 
     @Autowired
     JsonMapper json;
+
+    @Autowired
+    KafkaTemplate<String, String> kafka;
 
     record ApiResponse(int status, String body) {
     }
@@ -148,6 +158,36 @@ class ReturnApiIT {
         assertThat(again.status()).isEqualTo(200);
         assertThat(call(adminToken(), HttpMethod.POST, "/api/v1/returns/" + returnId + "/reject", Map.of(),
                 "{\"reason\":\"too late\"}").status()).as("received cannot be rejected").isEqualTo(409);
+    }
+
+    /**
+     * Receiving announces the parcel to catalog and asks payment for the refund, in the same
+     * transaction, once: a second click sends nothing. payment-service's answer completes the return.
+     */
+    @Test
+    void receivingStartsTheRefundOnceAndTheAnswerCompletesTheReturn() throws Exception {
+        UUID order = deliveredOrder(Instant.now());
+        String returnId = id(requestReturn(order, UUID.randomUUID(), ONE_KEYBOARD));
+
+        call(adminToken(), HttpMethod.POST, "/api/v1/returns/" + returnId + "/receive", Map.of(), null);
+        call(adminToken(), HttpMethod.POST, "/api/v1/returns/" + returnId + "/receive", Map.of(), null);
+
+        assertThat(jdbc.queryForList("SELECT event_type FROM outbox_messages WHERE message_key = ? ORDER BY id",
+                String.class, order.toString())).containsExactly(ReturnReceived.TYPE, RefundPayment.TYPE);
+
+        var answer = new EventEnvelope(UUID.randomUUID(), PaymentRefunded.TYPE, 1, Instant.now(), "return-it",
+                json.valueToTree(new PaymentRefunded(UUID.randomUUID(), order, UUID.fromString(returnId),
+                        new BigDecimal("89.90"), "EUR")));
+        kafka.send(PaymentAuthorized.TOPIC, order.toString(), json.writeValueAsString(answer)).get();
+
+        Instant deadline = Instant.now().plusSeconds(20);
+        String status = "";
+        while (!"REFUNDED".equals(status) && Instant.now().isBefore(deadline)) {
+            Thread.sleep(200);
+            status = json.readTree(call(customerToken(), HttpMethod.GET, "/api/v1/returns/" + returnId, Map.of(), null)
+                    .body()).get("status").asString();
+        }
+        assertThat(status).isEqualTo("REFUNDED");
     }
 
     @Test
