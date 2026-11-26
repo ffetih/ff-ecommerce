@@ -45,6 +45,8 @@ final class ServiceProcess implements AutoCloseable {
         ProcessBuilder builder = new ProcessBuilder(command)
                 .redirectErrorStream(true)
                 .redirectOutput(log.toFile());
+        // No Jaeger in the e2e run: record no spans, so nothing tries to export them.
+        builder.environment().put("TRACING_SAMPLING", "0.0");
         builder.environment().putAll(environment);
         builder.environment().put("SERVER_PORT", String.valueOf(port));
         return new ServiceProcess(name, port, builder.start(), log);

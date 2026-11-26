@@ -40,6 +40,16 @@ spring:
                 - Path=/api/v1/shipments,/api/v1/shipments/**
 
 management:
+  # Traces (ADR-0011): every request and message, exported to Jaeger over OTLP. Without Jaeger
+  # running, export fails quietly and the service works as before.
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:

@@ -16,6 +16,11 @@ spring:
       enabled: true
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    # Each record carries the W3C traceparent of the span that sent it; consumers continue it.
+    template:
+      observation-enabled: true
+    listener:
+      observation-enabled: true
     admin:
       # Topics that already exist get the declared retention as well (MessagingTopics).
       modify-topic-configs: true
@@ -42,6 +47,16 @@ spring:
       ddl-auto: validate
 
 management:
+  # Traces (ADR-0011): every request and message, exported to Jaeger over OTLP. Without Jaeger
+  # running, export fails quietly and the service works as before.
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING:1.0}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoints:
     web:
       exposure:
