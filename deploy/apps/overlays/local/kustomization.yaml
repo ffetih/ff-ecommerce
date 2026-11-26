@@ -28,7 +28,7 @@ secretGenerator:
 # newTag that carries a $imagepolicy marker (deploy/clusters/local/image-automation.yaml) and commits.
 images:
   - name: ghcr.io/ffetih/ff-ecommerce/catalog-service
-    newTag: d59cf0e # {"$imagepolicy": "flux-system:catalog-service:tag"}
+    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:catalog-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/customer-service
     newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:customer-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/order-service
