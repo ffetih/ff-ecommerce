@@ -76,6 +76,14 @@ final class ServiceProcess implements AutoCloseable {
         throw new IllegalStateException(name + " not healthy within " + timeout + "; see " + log.toAbsolutePath());
     }
 
+    /** Fails if the process has exited, pointing to its log. */
+    void requireAlive() {
+        if (!process.isAlive()) {
+            throw new IllegalStateException(name + " is not running (exit " + process.exitValue() + "); see "
+                    + log.toAbsolutePath());
+        }
+    }
+
     @Override
     public void close() {
         process.destroy();
