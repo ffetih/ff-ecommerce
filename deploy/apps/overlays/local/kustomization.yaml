@@ -5,7 +5,6 @@ namespace: ecommerce
 resources:
   - ../../base
   - ingress.yaml
-
 # Inside the cluster every address is a Service name. The issuer stays the public one (it is what the
 # tokens say, ADR-0012); the signing keys come from the internal address. Same idea as compose's x-service-env.
 configMapGenerator:
@@ -14,11 +13,10 @@ configMapGenerator:
       - KAFKA_BOOTSTRAP_SERVERS=kafka-kafka-bootstrap:9092
       - SPRING_KAFKA_PROPERTIES_SECURITY_PROTOCOL=SASL_PLAINTEXT
       - SPRING_KAFKA_PROPERTIES_SASL_MECHANISM=SCRAM-SHA-512
-      - SPRING_KAFKA_ADMIN_AUTO_CREATE=false      # topics are KafkaTopic resources (base/kafka-topics.yaml)
+      - SPRING_KAFKA_ADMIN_AUTO_CREATE=false # topics are KafkaTopic resources (base/kafka-topics.yaml)
       - ISSUER_URI=http://keycloak.localtest.me:8888/realms/ecommerce
       - SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI=http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
       - OTLP_TRACES_ENDPOINT=http://jaeger.monitoring:4318/v1/traces
-
 # Prometheus's login for the scrape (ServiceMonitor "services"): the "prometheus" client of the realm.
 # A fixed name, because the ServiceMonitor refers to it and Kustomize doesn't rewrite that reference.
 secretGenerator:
@@ -26,14 +24,13 @@ secretGenerator:
     literals: [client-id=prometheus, client-secret=prometheus-secret]
     options:
       disableNameSuffixHash: true
-
 # The images CI published from main. Flux image automation keeps the tags current: it rewrites each
 # newTag that carries a $imagepolicy marker (deploy/clusters/local/image-automation.yaml) and commits.
 images:
   - name: ghcr.io/ffetih/ff-ecommerce/catalog-service
     newTag: d59cf0e # {"$imagepolicy": "flux-system:catalog-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/customer-service
-    newTag: d59cf0e # {"$imagepolicy": "flux-system:customer-service:tag"}
+    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:customer-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/order-service
     newTag: d59cf0e # {"$imagepolicy": "flux-system:order-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/payment-service
