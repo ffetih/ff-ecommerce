@@ -6,6 +6,7 @@ import io.github.ffetih.ecommerce.payment.domain.Payment;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -83,6 +84,36 @@ class JdbcPayments implements PaymentRepository {
                 .param("createdAt", utc(payment.createdAt()))
                 .param("updatedAt", utc(payment.updatedAt()))
                 .update();
+    }
+
+    /**
+     * The whole limit is the {@code WHERE}: two refunds at the same moment are applied one after the
+     * other on the locked row, and the second sees the first. The check constraint refuses the rest.
+     */
+    @Override
+    public boolean reserveRefund(UUID paymentId, BigDecimal amount) {
+        return jdbc.sql("""
+                        UPDATE payments SET refunded_amount = refunded_amount + :amount
+                        WHERE id = :id AND status = 'CAPTURED' AND refunded_amount + :amount <= amount""")
+                .param("id", paymentId)
+                .param("amount", amount)
+                .update() == 1;
+    }
+
+    @Override
+    public void releaseRefund(UUID paymentId, BigDecimal amount) {
+        jdbc.sql("UPDATE payments SET refunded_amount = refunded_amount - :amount WHERE id = :id")
+                .param("id", paymentId)
+                .param("amount", amount)
+                .update();
+    }
+
+    @Override
+    public BigDecimal refundedAmount(UUID paymentId) {
+        return jdbc.sql("SELECT refunded_amount FROM payments WHERE id = :id")
+                .param("id", paymentId)
+                .query(BigDecimal.class)
+                .single();
     }
 
     private static Payment map(ResultSet rs, int row) throws SQLException {

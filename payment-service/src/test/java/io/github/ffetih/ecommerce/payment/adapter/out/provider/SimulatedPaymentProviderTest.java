@@ -83,4 +83,27 @@ class SimulatedPaymentProviderTest {
                 .isEqualTo(new Declined("Amount exceeds the authorization"));
         assertThat(provider.capture("p2:capture", "AUTH-unknown", AMOUNT)).isEqualTo(new Declined("Unknown authorization"));
     }
+
+    @Test
+    void refundsCapturedMoneyOncePerKeyAndNeverMoreThanWasCaptured() {
+        String hold = authorize("p1:authorize", SimulatedPaymentProvider.OK);
+        assertThat(provider.refund("p1:refund:r0", hold, Money.of(new BigDecimal("10.00"), "TRY")))
+                .as("nothing captured yet").isEqualTo(new Declined("Nothing captured to refund"));
+        provider.capture("p1:capture", hold, AMOUNT);
+
+        ProviderResult first = provider.refund("p1:refund:r1", hold, Money.of(new BigDecimal("60.00"), "TRY"));
+        assertThat(first).isInstanceOf(Approved.class);
+        assertThat(provider.refund("p1:refund:r1", hold, Money.of(new BigDecimal("60.00"), "TRY"))).isEqualTo(first);
+        assertThat(provider.refunded(hold)).as("the retry gave nothing more back").isEqualByComparingTo("60.00");
+        assertThat(provider.refund("p1:refund:r2", hold, Money.of(new BigDecimal("50.00"), "TRY")))
+                .isEqualTo(new Declined("Refunds exceed the captured amount"));
+    }
+
+    @Test
+    void theRefundFailsTokenCannotBeRefunded() {
+        String hold = authorize("p1:authorize", SimulatedPaymentProvider.REFUND_FAILS);
+        provider.capture("p1:capture", hold, AMOUNT);
+
+        assertThat(provider.refund("p1:refund:r1", hold, AMOUNT)).isEqualTo(new Declined("Card account closed"));
+    }
 }

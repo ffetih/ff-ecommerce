@@ -2,10 +2,12 @@ package io.github.ffetih.ecommerce.order.adapter.out.messaging;
 
 import io.github.ffetih.ecommerce.events.payment.AuthorizePayment;
 import io.github.ffetih.ecommerce.events.payment.CapturePayment;
+import io.github.ffetih.ecommerce.events.payment.RefundPayment;
 import io.github.ffetih.ecommerce.events.payment.VoidPayment;
 import io.github.ffetih.ecommerce.messaging.outbox.Outbox;
 import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
 import io.github.ffetih.ecommerce.order.domain.Order;
+import io.github.ffetih.ecommerce.order.domain.Return;
 import org.springframework.stereotype.Component;
 
 /** Keyed by order id: one order's commands reach payment-service in the order they were sent. */
@@ -32,6 +34,13 @@ class OutboxPaymentCommands implements PaymentCommands {
     @Override
     public void voidPayment(Order order) {
         append(order, VoidPayment.TYPE, VoidPayment.VERSION, new VoidPayment(order.id()));
+    }
+
+    @Override
+    public void refund(Return received) {
+        outbox.append(AuthorizePayment.TOPIC, received.orderId().toString(), RefundPayment.TYPE, RefundPayment.VERSION,
+                new RefundPayment(received.orderId(), received.id(), received.refundAmount().amount(),
+                        received.refundAmount().currency().getCurrencyCode()));
     }
 
     private void append(Order order, String type, int version, Object command) {

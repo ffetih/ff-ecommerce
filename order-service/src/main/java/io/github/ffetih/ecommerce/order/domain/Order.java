@@ -46,6 +46,7 @@ public record Order(
         String cancellationReason,
         String cardToken,
         PaymentStatus payment,
+        Instant deliveredAt,
         Instant createdAt,
         Instant updatedAt) {
 
@@ -116,7 +117,7 @@ public record Order(
             total = total == null ? line.lineTotal() : total.plus(line.lineTotal()); // plus() rejects mixed currencies
         }
         return new Order(UUID.randomUUID(), customerId, lines, total, shippingAddress.trim(),
-                Status.PLACED, null, cardToken.trim(), PaymentStatus.NOT_REQUESTED, now, now);
+                Status.PLACED, null, cardToken.trim(), PaymentStatus.NOT_REQUESTED, null, now, now);
     }
 
     /** Stock is reserved: ask for the payment. The order stays PLACED until the payment is authorized. */
@@ -206,7 +207,8 @@ public record Order(
         if (status != Status.SHIPPED) {
             throw new IllegalOrderTransitionException(id, status, "deliver");
         }
-        return withStatus(Status.DELIVERED, null, now);
+        return new Order(id, customerId, lines, total, shippingAddress, Status.DELIVERED, null, cardToken, payment,
+                now, createdAt, now);
     }
 
     /**
@@ -277,6 +279,6 @@ public record Order(
 
     private Order with(Status newStatus, String reason, PaymentStatus newPayment, Instant now) {
         return new Order(id, customerId, lines, total, shippingAddress, newStatus, reason, cardToken, newPayment,
-                createdAt, now);
+                deliveredAt, createdAt, now);
     }
 }

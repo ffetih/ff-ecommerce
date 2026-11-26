@@ -20,6 +20,9 @@ class SecurityConfiguration {
         return resourceServer.build(http, allow -> allow
                 .requestMatchers(HttpMethod.POST, "/api/v1/orders").hasRole("customer")
                 .requestMatchers(HttpMethod.GET, "/api/v1/orders", "/api/v1/orders/*").hasAnyRole("customer", "admin")
-                .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/cancel").hasAnyRole("customer", "admin"));
+                .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/cancel").hasAnyRole("customer", "admin")
+                .requestMatchers(HttpMethod.POST, "/api/v1/orders/*/returns").hasAnyRole("customer", "admin")
+                .requestMatchers(HttpMethod.GET, "/api/v1/orders/*/returns", "/api/v1/returns/*").hasAnyRole("customer", "admin")
+                .requestMatchers(HttpMethod.POST, "/api/v1/returns/*/receive", "/api/v1/returns/*/reject").hasRole("admin"));
     }
 }

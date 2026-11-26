@@ -5,6 +5,9 @@ import io.github.ffetih.ecommerce.order.application.IdempotencyKeyReusedExceptio
 import io.github.ffetih.ecommerce.order.application.NotAllowedException;
 import io.github.ffetih.ecommerce.order.application.OrderNotFoundException;
 import io.github.ffetih.ecommerce.order.application.OrderRejectedException;
+import io.github.ffetih.ecommerce.order.application.ReturnNotFoundException;
+import io.github.ffetih.ecommerce.order.domain.IllegalReturnTransitionException;
+import io.github.ffetih.ecommerce.order.domain.ReturnNotAllowedException;
 import io.github.ffetih.ecommerce.order.domain.IllegalOrderTransitionException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -18,8 +21,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 class ApiExceptionHandler {
 
-    @ExceptionHandler(OrderNotFoundException.class)
-    ProblemDetail notFound(OrderNotFoundException ex) {
+    @ExceptionHandler({OrderNotFoundException.class, ReturnNotFoundException.class})
+    ProblemDetail notFound(RuntimeException ex) {
         return problem(HttpStatus.NOT_FOUND, "Not found", ex.getMessage());
     }
 
@@ -34,8 +37,24 @@ class ApiExceptionHandler {
         return problem(HttpStatusCode.valueOf(422), "Order rejected", ex.getMessage());
     }
 
+    /** Well-formed return request that the rules refuse: too late, not paid, more than was bought. */
+    @ExceptionHandler(ReturnNotAllowedException.class)
+    ProblemDetail returnRefused(ReturnNotAllowedException ex) {
+        return problem(HttpStatusCode.valueOf(422), "Return refused", ex.getMessage());
+    }
+
+    /**
+     * Two requests changed the same order or return at the same moment, and this one lost. The ORM's
+     * message names tables and columns: it stays in the log, the client gets a plain answer.
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    ProblemDetail concurrentChange(ObjectOptimisticLockingFailureException ex) {
+        return problem(HttpStatus.CONFLICT, "Conflict",
+                "Changed by another request at the same moment; read it again before retrying");
+    }
+
     @ExceptionHandler({IdempotencyKeyReusedException.class, IllegalOrderTransitionException.class,
-            ObjectOptimisticLockingFailureException.class})
+            IllegalReturnTransitionException.class})
     ProblemDetail conflict(RuntimeException ex) {
         return problem(HttpStatus.CONFLICT, "Conflict", ex.getMessage());
     }

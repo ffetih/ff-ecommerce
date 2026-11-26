@@ -11,12 +11,16 @@ import io.github.ffetih.ecommerce.order.application.OrderExpiry;
 import io.github.ffetih.ecommerce.order.application.OrderSagaService;
 import io.github.ffetih.ecommerce.order.application.OrderService;
 import io.github.ffetih.ecommerce.order.application.PaymentSteps;
+import io.github.ffetih.ecommerce.order.application.ReturnService;
 import io.github.ffetih.ecommerce.order.application.port.CustomerDirectory;
 import io.github.ffetih.ecommerce.order.application.port.OrderEvents;
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
 import io.github.ffetih.ecommerce.order.application.port.PriceCatalog;
 import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
+import io.github.ffetih.ecommerce.order.application.port.ReturnEvents;
+import io.github.ffetih.ecommerce.order.application.port.ReturnRepository;
+import io.github.ffetih.ecommerce.order.application.port.ReturnedUnits;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -27,7 +31,7 @@ import java.time.Clock;
 import java.util.List;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({ClientProperties.class, ExpiryProperties.class})
+@EnableConfigurationProperties({ClientProperties.class, ExpiryProperties.class, ReturnProperties.class})
 class OrderConfiguration {
 
     @Bean
@@ -39,6 +43,14 @@ class OrderConfiguration {
     OrderService orderService(OrderRepository orders, CustomerDirectory customers, PriceCatalog catalog,
                               OrderEvents events, Transactions transactions, Clock clock) {
         return new OrderService(orders, customers, catalog, events, transactions, clock);
+    }
+
+    @Bean
+    ReturnService returnService(OrderRepository orders, ReturnRepository returns, ReturnedUnits returnedUnits,
+                                ReturnEvents events, PaymentCommands payments, ProcessedEvents processedEvents,
+                                Transactions transactions, Clock clock, ReturnProperties properties) {
+        return new ReturnService(orders, returns, returnedUnits, events, payments, processedEvents, transactions, clock,
+                new ReturnService.Settings(properties.window()));
     }
 
     @Bean

@@ -11,6 +11,7 @@ import io.github.ffetih.ecommerce.events.catalog.StockReservationFailed;
 import io.github.ffetih.ecommerce.events.catalog.StockReserved;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
 import io.github.ffetih.ecommerce.events.order.OrderPlaced;
+import io.github.ffetih.ecommerce.events.order.ReturnReceived;
 import io.github.ffetih.ecommerce.events.shipping.ShipmentDispatched;
 import io.github.ffetih.ecommerce.messaging.EventEnvelope;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -151,6 +152,32 @@ class SagaParticipationIT {
         awaitUntil(() -> stock.get(sku).onHand() == 6);
         assertThat(stock.get(sku).reserved()).isZero();
         assertThat(reservations.get(orderId).status()).isEqualTo(Reservation.Status.COMMITTED);
+    }
+
+    /**
+     * A received return puts its units back once: the same event delivered twice, and the same return
+     * announced again with a new event id (a replay after the inbox forgot it), add nothing more.
+     */
+    @Test
+    void aReceivedReturnRestocksItsUnitsOnce() throws Exception {
+        Sku sku = productWithStock(products, stock, 10);
+        UUID orderId = UUID.randomUUID();
+        UUID returnId = UUID.randomUUID();
+        var received = new ReturnReceived(returnId, orderId, List.of(new ReturnReceived.Line(sku.value(), 2)));
+        UUID eventId = UUID.randomUUID();
+
+        publish(OrderPlaced.TOPIC, orderId, ReturnReceived.TYPE, received, eventId);
+        publish(OrderPlaced.TOPIC, orderId, ReturnReceived.TYPE, received, eventId);
+        publish(OrderPlaced.TOPIC, orderId, ReturnReceived.TYPE, received, UUID.randomUUID());
+        UUID marker = UUID.randomUUID();
+        Sku other = productWithStock(products, stock, 1);
+        publish(OrderPlaced.TOPIC, orderId, ReturnReceived.TYPE,
+                new ReturnReceived(marker, orderId, List.of(new ReturnReceived.Line(other.value(), 1))));
+
+        // The marker comes after the three deliveries on the same partition: once it is in, they are too.
+        awaitUntil(() -> stock.get(other).onHand() == 2);
+        assertThat(stock.get(sku).onHand()).isEqualTo(12);
+        assertThat(stock.get(sku).available()).isEqualTo(12);
     }
 
     // --- helpers -----------------------------------------------------------------------------

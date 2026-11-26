@@ -59,6 +59,8 @@ class GatewayRoutingIT {
             "GET,  /api/v1/customers/me,                customer",
             "POST, /api/v1/orders,                      order",
             "POST, /api/v1/orders/42/cancel,            order",
+            "POST, /api/v1/orders/42/returns,           order",
+            "POST, /api/v1/returns/9/receive,           order",
             "GET,  /api/v1/shipments,                   shipping",
             "POST, /api/v1/shipments/7/dispatch,        shipping",
     })

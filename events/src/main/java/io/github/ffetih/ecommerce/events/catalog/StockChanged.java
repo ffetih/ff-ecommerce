@@ -10,8 +10,9 @@ import java.util.UUID;
  * @param onHand    units in the warehouse after the change
  * @param reserved  units held for open orders after the change
  * @param available units a new order can take after the change
- * @param reason    what changed it: {@code RECEIVED}, {@code RESERVED}, {@code RELEASED} or {@code COMMITTED}
- * @param reference the goods receipt or order that caused the change
+ * @param reason    what changed it: {@code RECEIVED}, {@code RESERVED}, {@code RELEASED}, {@code COMMITTED} or
+ *                  {@code RETURNED}
+ * @param reference the goods receipt, order or return that caused the change
  */
 public record StockChanged(String sku, int onHand, int reserved, int available, String reason, UUID reference) {
 
@@ -23,4 +24,6 @@ public record StockChanged(String sku, int onHand, int reserved, int available, 
     public static final String RESERVED = "RESERVED";
     public static final String RELEASED = "RELEASED";
     public static final String COMMITTED = "COMMITTED";
+    /** Units of a received return are in the warehouse again (ADR-0010). */
+    public static final String RETURNED = "RETURNED";
 }

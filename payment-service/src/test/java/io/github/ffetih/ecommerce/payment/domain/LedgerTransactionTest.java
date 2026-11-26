@@ -36,6 +36,21 @@ class LedgerTransactionTest {
     }
 
     @Test
+    void aRefundReversesTheCapturesAccounts() {
+        Payment captured = authorized().requestCapture(NOW).captured(NOW);
+        Refund refunded = Refund.start(captured, UUID.randomUUID(), Money.of(new BigDecimal("40.00"), "TRY"), NOW)
+                .refunded("REF-1", NOW);
+
+        LedgerTransaction booked = LedgerTransaction.refund(refunded, NOW);
+
+        assertThat(booked.kind()).isEqualTo(LedgerTransaction.Kind.REFUND);
+        assertThat(booked.reference()).isEqualTo(refunded.idempotencyKey());
+        assertThat(booked.entries()).containsExactly(
+                new LedgerEntry(Account.SALES, new BigDecimal("40.00")),
+                new LedgerEntry(Account.PROVIDER_RECEIVABLE, new BigDecimal("-40.00")));
+    }
+
+    @Test
     void onlyACapturedPaymentIsBooked() {
         assertThatThrownBy(() -> LedgerTransaction.capture(authorized(), NOW))
                 .isInstanceOf(IllegalPaymentTransitionException.class);
