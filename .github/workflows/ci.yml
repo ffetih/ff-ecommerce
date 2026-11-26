@@ -25,3 +25,16 @@ jobs:
       # Unit tests (*Test) and Testcontainers integration tests (*IT); the runner provides Docker.
       - name: Build and test
         run: ./mvnw -B -ntp verify
+
+      # When something fails, keep what is needed to see why: the test reports, and the logs of the
+      # services the end-to-end tests started as separate processes.
+      - name: Keep test reports and service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports-and-logs
+          retention-days: 7
+          path: |
+            **/target/surefire-reports/
+            **/target/failsafe-reports/
+            e2e-tests/target/e2e-logs/

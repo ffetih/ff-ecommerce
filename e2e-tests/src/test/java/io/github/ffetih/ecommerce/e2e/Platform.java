@@ -90,10 +90,15 @@ final class Platform implements AutoCloseable {
         String bootstrap = kafka.getBootstrapServers();
         // Services and tests reach Keycloak at the same address, so the "iss" claim matches on both sides.
         String issuer = "http://" + keycloak.getHost() + ":" + keycloak.getMappedPort(8080) + "/realms/ecommerce";
-        int catalogPort = freePort();
-        int customerPort = freePort();
-        int orderPort = freePort();
-        int shippingPort = freePort();
+        // All ports at once, before any service starts: a port picked while the others are still
+        // starting up can be one of theirs, and then two services race for it (see freePorts).
+        int[] ports = freePorts(6);
+        int catalogPort = ports[0];
+        int customerPort = ports[1];
+        int orderPort = ports[2];
+        int shippingPort = ports[3];
+        int paymentPort = ports[4];
+        int gatewayPort = ports[5];
 
         ServiceProcess catalog = ServiceProcess.start("catalog-service", jar(root, "catalog-service", version), catalogPort,
                 Map.of("CATALOG_DB_URL", jdbc + "catalog_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer));
@@ -106,12 +111,12 @@ final class Platform implements AutoCloseable {
         ServiceProcess shipping = ServiceProcess.start("shipping-service", jar(root, "shipping-service", version), shippingPort,
                 Map.of("SHIPPING_DB_URL", jdbc + "shipping_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer));
         // A provider call without an answer is asked again after a second, not 30 (tok_slow tests).
-        ServiceProcess payment = ServiceProcess.start("payment-service", jar(root, "payment-service", version), freePort(),
+        ServiceProcess payment = ServiceProcess.start("payment-service", jar(root, "payment-service", version), paymentPort,
                 Map.of("PAYMENT_DB_URL", jdbc + "payment_db", "KAFKA_BOOTSTRAP_SERVERS", bootstrap, "ISSUER_URI", issuer,
                         "ECOMMERCE_PAYMENTS_RESOLVER_STALEAFTER", "1s",
                         "ECOMMERCE_PAYMENTS_RESOLVER_SCANINTERVAL", "500ms"));
 
-        ServiceProcess gateway = ServiceProcess.start("gateway", jar(root, "gateway", version), freePort(),
+        ServiceProcess gateway = ServiceProcess.start("gateway", jar(root, "gateway", version), gatewayPort,
                 Map.of("CATALOG_SERVICE_URL", "http://localhost:" + catalogPort,
                         "CUSTOMER_SERVICE_URL", "http://localhost:" + customerPort,
                         "ORDER_SERVICE_URL", "http://localhost:" + orderPort,
@@ -130,6 +135,12 @@ final class Platform implements AutoCloseable {
             for (Future<?> startup : startups) {
                 startup.get();
             }
+            // A service that lost its port to another one answers health checks through the winner's
+            // port and dies a moment later: make sure every process is still there.
+            Thread.sleep(1_000);
+            for (ServiceProcess service : List.of(catalog, customer, order, shipping, payment, gateway)) {
+                service.requireAlive();
+            }
         } catch (Exception e) {
             platform.close();
             throw e;
@@ -141,9 +152,23 @@ final class Platform implements AutoCloseable {
         return root.resolve(service).resolve("target").resolve(service + "-" + version + ".jar");
     }
 
-    private static int freePort() throws IOException {
-        try (ServerSocket socket = new ServerSocket(0)) {
-            return socket.getLocalPort();
+    /**
+     * {@code count} different free ports. The sockets are held open until all ports are chosen: a port
+     * closed before the next is picked can be handed out again, and a service started on it later
+     * would then share it with another. (That happened on CI: payment-service took order-service's
+     * port, the gateway sent orders to payment-service, and every order got its "403 not allowed".)
+     */
+    private static int[] freePorts(int count) throws IOException {
+        List<ServerSocket> sockets = new ArrayList<>();
+        try {
+            for (int i = 0; i < count; i++) {
+                sockets.add(new ServerSocket(0));
+            }
+            return sockets.stream().mapToInt(ServerSocket::getLocalPort).toArray();
+        } finally {
+            for (ServerSocket socket : sockets) {
+                socket.close();
+            }
         }
     }
 
