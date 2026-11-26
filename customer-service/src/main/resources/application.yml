@@ -37,6 +37,12 @@ management:
       export:
         otlp:
           endpoint: ${OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+  # Metrics are pulled by Prometheus from /actuator/prometheus. The OpenTelemetry starter would also
+  # push them over OTLP every minute; Jaeger takes traces only, so that push stays off.
+  otlp:
+    metrics:
+      export:
+        enabled: false
   endpoints:
     web:
       exposure:
