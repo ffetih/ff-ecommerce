@@ -2,18 +2,19 @@
 
 ![CI](https://github.com/ffetih/ff-ecommerce/actions/workflows/ci.yml/badge.svg)
 
-An order-to-delivery flow built as independent services: catalog and inventory, customers, orders
-and shipping, each with its own database, talking through Kafka. The focus is on the hard parts of
-distributed systems rather than on feature count: consistent stock under concurrency, a saga with
-correct compensation, reliable event publishing with the transactional outbox, idempotent
-consumers, and a real security boundary.
+An order-to-delivery flow built as independent services: catalog and inventory, customers, orders,
+payments and shipping, each with its own database, talking through Kafka. The focus is on the hard
+parts of distributed systems rather than on feature count: consistent stock under concurrency, a saga
+with correct compensation, reliable event publishing with the transactional outbox, idempotent
+consumers, payments that never charge twice even when the provider does not answer, a double-entry
+ledger, and a real security boundary.
 
 **Documentation: [ffetih.github.io/ff-ecommerce-docs](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/index.html)**, by role:
 [architect](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/index.html) ·
 [business](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/business/index.html) ·
 [developer](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/index.html) ·
 [operations](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/operations/index.html).
-Start with [seven failure stories](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/consistency/index.html): each rule in the saga
+Start with [ten failure stories](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/consistency/index.html): each rule in the saga
 exists because of one concrete way the system could end up wrong.
 
 **Stack:** Java 25 · Spring Boot 4.2 · PostgreSQL 17 · Apache Kafka (KRaft) · Keycloak 26 · Testcontainers
@@ -24,8 +25,9 @@ exists because of one concrete way the system could end up wrong.
 | --- | --- | --- |
 | `catalog-service` | 8081 | Products and prices; stock receipts; reserve / commit / release stock per order |
 | `customer-service` | 8082 | Customer profiles keyed by the Keycloak user id; shipping addresses; deactivation |
-| `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle and expiry |
+| `order-service` | 8083 | Order placement at catalog prices, idempotent per `Idempotency-Key`; order lifecycle and expiry; drives the payment |
 | `shipping-service` | 8084 | One shipment per confirmed order; dispatch and delivery; decides cancellations of confirmed orders |
+| `payment-service` | 8085 | Authorize, capture and void through a (simulated) provider with idempotency keys; resolves unanswered calls; double-entry ledger. No public API: commanded by order-service |
 | `gateway` | 8080 | Single entry point: routes each API path to its service; makes no authorization decision |
 
 API: [reference](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/api.html). Saga: [how it works](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/saga.html).
@@ -58,8 +60,8 @@ prove what it claims, and updated documentation.
 | s05 | Security: Keycloak, resource servers with enforced deny-by-default, identity from the token, service tokens, routing-only gateway | done |
 | s06 | Saga hardening: cancellation decided by shipping, delivery only after dispatch, order expiry, metrics, replay guards, inbox retention | done |
 | s07 | Documentation: role-based site, domain model, failure stories with live drills, runbooks | done |
-| s08 | Payments | next |
-| s09 | Returns | planned |
+| s08 | Payments: authorize before confirming, capture at dispatch, void on cancellation; unknown provider outcomes resolved, never declined; double-entry ledger | done |
+| s09 | Returns | next |
 | s10 | Observability | planned |
 | s11 | Packaging | planned |
 
