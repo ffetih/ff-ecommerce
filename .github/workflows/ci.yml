@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read the code; write packages only to publish the images from main (ADR-0012).
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,6 +30,21 @@ jobs:
       # Unit tests (*Test) and Testcontainers integration tests (*IT); the runner provides Docker.
       - name: Build and test
         run: ./mvnw -B -ntp verify
+
+      # Only what has passed every test on main becomes an image in the registry. Jib pushes
+      # without a Docker daemon; it reads the login from Docker's config.
+      - name: Log in to GitHub Container Registry
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tagged with the commit's short SHA (immutable: what a cluster deploys) and "main" (the latest).
+      - name: Publish images
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: ./mvnw -B -ntp -DskipTests -Dimage.tag=${GITHUB_SHA::7} -Djib.to.tags=main package jib:build
 
       # When something fails, keep what is needed to see why: the test reports, and the logs of the
       # services the end-to-end tests started as separate processes.

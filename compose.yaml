@@ -10,9 +10,48 @@
 #   Prometheus  http://localhost:9090   scrapes /actuator/prometheus, evaluates the alert rules
 #   Grafana     http://localhost:3000   dashboard "ecommerce: overview"
 #
+# The whole system in containers (optional: docker compose --profile app up -d --wait; ADR-0012).
+# The six services run from the images Jib builds; build them first:
+#   ./mvnw package -DskipTests jib:dockerBuild
+# They publish the same ports as when run from the IDE (gateway 8080, services 8081-8085), so stop
+# the IDE's services first. Combine with --profile observability for traces and dashboards.
+#
 # Image versions are kept in sync with the Testcontainers images in test-support.
 
 name: ecommerce
+
+# Shared by the six services of the "app" profile. Image names follow the service; the tag is the
+# project version unless IMAGE_TAG says otherwise (a CI build's short SHA, for example).
+x-service: &service
+  profiles: ["app"]
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    keycloak:
+      condition: service_healthy
+  restart: unless-stopped
+  deploy:
+    resources:
+      limits:
+        memory: 512M
+
+# Inside the network every address is a service name. The issuer stays the public one (it is what the
+# tokens say); the signing keys are fetched from the internal address.
+x-service-env: &service-env
+  KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+  ISSUER_URI: http://localhost:8180/realms/ecommerce
+  SPRING_SECURITY_OAUTH2_RESOURCESERVER_JWT_JWKSETURI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs
+  # Jaeger runs with the observability profile; without it, spans are dropped.
+  OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+
+# The images have no curl: speak HTTP to the readiness endpoint through bash, like Keycloak's check.
+x-service-health: &service-health
+  interval: 5s
+  timeout: 5s
+  start_period: 60s
+  retries: 30
 
 services:
   postgres:
@@ -73,6 +112,11 @@ services:
     ports:
       - "8180:8080"
     environment:
+      # One issuer for every token, whoever asks (ADR-0012): the browser, curl and the IDE's services
+      # call localhost:8180, containers call keycloak:8080, and both get iss=http://localhost:8180/...
+      KC_HOSTNAME: http://localhost:8180
+      # Token and key endpoints answer on whichever address they were called (the internal one).
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
       KC_BOOTSTRAP_ADMIN_USERNAME: kcadmin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-kcadmin}
       KC_HEALTH_ENABLED: "true"
@@ -154,6 +198,83 @@ services:
       resources:
         limits:
           memory: 384M
+
+  # --- The services, from their images (profile "app") ---------------------------------------
+
+  catalog-service:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/catalog-service:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      <<: *service-env
+      CATALOG_DB_URL: jdbc:postgresql://postgres:5432/catalog_db
+    ports: ["8081:8081"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8081 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+
+  customer-service:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/customer-service:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      <<: *service-env
+      CUSTOMER_DB_URL: jdbc:postgresql://postgres:5432/customer_db
+    ports: ["8082:8082"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8082 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+
+  order-service:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/order-service:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      <<: *service-env
+      ORDER_DB_URL: jdbc:postgresql://postgres:5432/order_db
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      CUSTOMER_SERVICE_URL: http://customer-service:8082
+      # Its own token (client credentials) from the internal address; the issuer stays the public one.
+      SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_TOKENURI: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/token
+    ports: ["8083:8083"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8083 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+
+  shipping-service:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/shipping-service:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      <<: *service-env
+      SHIPPING_DB_URL: jdbc:postgresql://postgres:5432/shipping_db
+    ports: ["8084:8084"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8084 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+
+  payment-service:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/payment-service:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      <<: *service-env
+      PAYMENT_DB_URL: jdbc:postgresql://postgres:5432/payment_db
+    ports: ["8085:8085"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8085 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
+
+  gateway:
+    <<: *service
+    image: ghcr.io/ffetih/ff-ecommerce/gateway:${IMAGE_TAG:-0.1.0-SNAPSHOT}
+    environment:
+      CATALOG_SERVICE_URL: http://catalog-service:8081
+      CUSTOMER_SERVICE_URL: http://customer-service:8082
+      ORDER_SERVICE_URL: http://order-service:8083
+      SHIPPING_SERVICE_URL: http://shipping-service:8084
+      OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
+    # The gateway checks no tokens itself, so it does not wait for Keycloak.
+    depends_on: {}
+    ports: ["8080:8080", "8089:8089"]
+    healthcheck:
+      <<: *service-health
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8089 && printf 'GET /actuator/health/readiness HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1.1 200' <&3"]
 
 volumes:
   postgres-data:
