@@ -24,16 +24,20 @@ class OrderTest {
 
     private static Order placed() {
         return Order.place(CUSTOMER, List.of(line("KB-01", 2, "89.90"), line("MOUSE-01", 1, "24.50")),
-                "Bağdat Cd. 1, İstanbul", NOW);
+                "Bağdat Cd. 1, İstanbul", "tok_ok", NOW);
+    }
+
+    private static Order confirmed() {
+        return placed().stockReserved(NOW).paymentAuthorized(NOW);
     }
 
     private static Order in(Order.Status status) {
         return switch (status) {
             case PLACED -> placed();
-            case CONFIRMED -> placed().confirm(NOW);
-            case CANCELLATION_REQUESTED -> placed().confirm(NOW).requestCancellation("changed my mind", NOW);
-            case SHIPPED -> placed().confirm(NOW).ship(NOW);
-            case DELIVERED -> placed().confirm(NOW).ship(NOW).deliver(NOW);
+            case CONFIRMED -> confirmed();
+            case CANCELLATION_REQUESTED -> confirmed().requestCancellation("changed my mind", NOW);
+            case SHIPPED -> confirmed().ship(NOW);
+            case DELIVERED -> confirmed().ship(NOW).deliver(NOW);
             case CANCELLED -> placed().cancel("customer request", NOW);
         };
     }
@@ -48,25 +52,25 @@ class OrderTest {
     void rejectsMixedCurrenciesDuplicateSkusAndEmptyOrders() {
         assertThatIllegalArgumentException().isThrownBy(() -> Order.place(CUSTOMER,
                 List.of(line("KB-01", 1, "10.00"), new OrderLine(Sku.of("MOUSE-01"), 1, Money.of("5.00", "USD"))),
-                "Somewhere", NOW));
+                "Somewhere", "tok_ok", NOW));
         assertThatIllegalArgumentException().isThrownBy(() -> Order.place(CUSTOMER,
-                List.of(line("KB-01", 1, "10.00"), line("kb-01", 2, "10.00")), "Somewhere", NOW));
-        assertThatIllegalArgumentException().isThrownBy(() -> Order.place(CUSTOMER, List.of(), "Somewhere", NOW));
+                List.of(line("KB-01", 1, "10.00"), line("kb-01", 2, "10.00")), "Somewhere", "tok_ok", NOW));
+        assertThatIllegalArgumentException().isThrownBy(() -> Order.place(CUSTOMER, List.of(), "Somewhere", "tok_ok", NOW));
     }
 
     @Test
     void rejectsAShippingAddressLongerThanTheStoredColumn() {
         String fiveHundred = "x".repeat(Order.MAX_ADDRESS_LENGTH);
 
-        assertThat(Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred, NOW).shippingAddress())
+        assertThat(Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred, "tok_ok", NOW).shippingAddress())
                 .hasSize(Order.MAX_ADDRESS_LENGTH);
         assertThatIllegalArgumentException().isThrownBy(() ->
-                Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred + "x", NOW));
+                Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), fiveHundred + "x", "tok_ok", NOW));
     }
 
     @Test
     void followsTheHappyPath() {
-        Order delivered = placed().confirm(NOW).ship(NOW).deliver(NOW);
+        Order delivered = confirmed().ship(NOW).deliver(NOW);
 
         assertThat(delivered.status()).isEqualTo(Order.Status.DELIVERED);
     }
@@ -83,8 +87,9 @@ class OrderTest {
         Order order = in(status);
 
         if (status != Order.Status.PLACED) {
-            // Includes CANCELLED: a late "stock reserved" must not revive a cancelled order.
-            assertThat(order.confirm(NOW.plusSeconds(60))).as("late confirm").isSameAs(order);
+            // Includes CANCELLED: a late "stock reserved" or authorization must not revive a cancelled order.
+            assertThat(order.stockReserved(NOW.plusSeconds(60))).as("late reservation").isSameAs(order);
+            assertThat(order.paymentAuthorized(NOW.plusSeconds(60))).as("late authorization").isSameAs(order);
         }
         if (status == Order.Status.SHIPPED || status == Order.Status.DELIVERED) {
             assertThat(order.ship(NOW.plusSeconds(60))).as("late ship").isSameAs(order);
@@ -151,6 +156,98 @@ class OrderTest {
 
         assertThat(shipped.status()).isEqualTo(Order.Status.SHIPPED);
         assertThat(shipped.cancellationRefused(NOW)).isSameAs(shipped);
+    }
+
+    // --- payment (ADR-0009) ----------------------------------------------------------------------
+
+    @Test
+    void needsAPaymentMethod() {
+        assertThatIllegalArgumentException().isThrownBy(() ->
+                Order.place(CUSTOMER, List.of(line("KB-01", 1, "10.00")), "Somewhere", " ", NOW));
+        assertThat(placed().cardToken()).isEqualTo("tok_ok");
+        assertThat(placed().payment()).isEqualTo(Order.PaymentStatus.NOT_REQUESTED);
+    }
+
+    @Test
+    void reservedStockAsksForThePaymentAndOnlyTheAuthorizationConfirms() {
+        Order reserved = placed().stockReserved(NOW);
+
+        assertThat(reserved.status()).isEqualTo(Order.Status.PLACED);
+        assertThat(reserved.payment()).isEqualTo(Order.PaymentStatus.AUTHORIZING);
+        assertThat(reserved.stockReserved(NOW)).as("repeated reservation").isSameAs(reserved);
+
+        Order confirmed = reserved.paymentAuthorized(NOW);
+        assertThat(confirmed.status()).isEqualTo(Order.Status.CONFIRMED);
+        assertThat(confirmed.payment()).isEqualTo(Order.PaymentStatus.AUTHORIZED);
+        assertThat(confirmed.paymentAuthorized(NOW)).as("repeated authorization").isSameAs(confirmed);
+    }
+
+    @Test
+    void anAuthorizationNobodyAskedForIsImpossible() {
+        assertThatThrownBy(() -> placed().paymentAuthorized(NOW)).isInstanceOf(IllegalOrderTransitionException.class);
+    }
+
+    @Test
+    void aDeclinedPaymentCancelsTheOrder() {
+        Order declined = placed().stockReserved(NOW).paymentDeclined("Card declined", NOW);
+
+        assertThat(declined.status()).isEqualTo(Order.Status.CANCELLED);
+        assertThat(declined.cancellationReason()).isEqualTo("Payment declined: Card declined");
+        assertThat(declined.payment()).isEqualTo(Order.PaymentStatus.DECLINED);
+        assertThat(declined.paymentDeclined("Card declined", NOW)).isSameAs(declined);
+        assertThatThrownBy(() -> confirmed().paymentDeclined("late", NOW)).isInstanceOf(IllegalOrderTransitionException.class);
+    }
+
+    @Test
+    void cancellingWhileTheAuthorizationIsPendingVoidsIt() {
+        Order cancelled = placed().stockReserved(NOW).cancel("changed my mind", NOW);
+
+        assertThat(cancelled.payment()).isEqualTo(Order.PaymentStatus.VOIDING);
+        assertThat(cancelled.paymentAuthorized(NOW)).as("an approval after the cancellation").isSameAs(cancelled);
+        assertThat(cancelled.paymentVoided(NOW).payment()).isEqualTo(Order.PaymentStatus.VOIDED);
+        assertThat(cancelled.paymentDeclined("Card declined", NOW).payment())
+                .as("declined after all: nothing to void").isEqualTo(Order.PaymentStatus.DECLINED);
+    }
+
+    @Test
+    void cancellingBeforeAnyPaymentWasAskedForSendsNothing() {
+        assertThat(placed().cancel("out of stock", NOW).payment()).isEqualTo(Order.PaymentStatus.NOT_REQUESTED);
+    }
+
+    @Test
+    void anAcceptedCancellationVoidsTheHold() {
+        Order cancelled = in(Order.Status.CANCELLATION_REQUESTED).cancellationAccepted(NOW);
+
+        assertThat(cancelled.payment()).isEqualTo(Order.PaymentStatus.VOIDING);
+    }
+
+    @Test
+    void theDispatchCapturesTheMoney() {
+        Order shipped = confirmed().ship(NOW);
+
+        assertThat(shipped.payment()).isEqualTo(Order.PaymentStatus.CAPTURING);
+        Order captured = shipped.paymentCaptured(NOW);
+        assertThat(captured.payment()).isEqualTo(Order.PaymentStatus.CAPTURED);
+        assertThat(captured.paymentCaptured(NOW)).isSameAs(captured);
+        assertThat(captured.deliver(NOW).payment()).isEqualTo(Order.PaymentStatus.CAPTURED);
+    }
+
+    @Test
+    void aFailedCaptureLeavesTheOrderShippedWithTheMoneyOwed() {
+        Order overdue = confirmed().ship(NOW).paymentCaptureFailed(NOW);
+
+        assertThat(overdue.status()).isEqualTo(Order.Status.SHIPPED);
+        assertThat(overdue.payment()).isEqualTo(Order.PaymentStatus.OVERDUE);
+        assertThat(overdue.paymentCaptureFailed(NOW)).isSameAs(overdue);
+        assertThatThrownBy(() -> confirmed().paymentCaptured(NOW)).isInstanceOf(IllegalOrderTransitionException.class);
+    }
+
+    @Test
+    void anOrderFromBeforePaymentsShipsWithoutOne() {
+        Order legacy = new Order(UUID.randomUUID(), CUSTOMER, List.of(line("KB-01", 1, "10.00")), Money.of("10.00", "EUR"),
+                "Somewhere", Order.Status.CONFIRMED, null, null, Order.PaymentStatus.NOT_REQUESTED, NOW, NOW);
+
+        assertThat(legacy.ship(NOW).payment()).isEqualTo(Order.PaymentStatus.NOT_REQUESTED);
     }
 
     private static void assertIllegal(Order.Status from, UnaryOperator<Order> step) {

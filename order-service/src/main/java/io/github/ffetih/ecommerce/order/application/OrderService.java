@@ -63,7 +63,7 @@ public class OrderService {
         }
         Order order = Order.place(customer.id(), pricedLines(command.lines()),
                 command.shippingAddress() != null ? command.shippingAddress() : customer.shippingAddress(),
-                clock.instant());
+                command.cardToken(), clock.instant());
 
         try {
             return transactions.inTransaction(() -> {

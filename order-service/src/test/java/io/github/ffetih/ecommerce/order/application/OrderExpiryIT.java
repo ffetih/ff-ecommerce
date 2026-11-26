@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.order.application;
 
 import io.github.ffetih.ecommerce.events.order.OrderCancellationRequested;
 import io.github.ffetih.ecommerce.events.order.OrderCancelled;
+import io.github.ffetih.ecommerce.events.payment.VoidPayment;
 import io.github.ffetih.ecommerce.order.application.port.OrderRepository;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import io.github.ffetih.ecommerce.order.domain.Money;
@@ -62,8 +63,20 @@ class OrderExpiryIT {
     }
 
     @Test
+    void aPlacedOrderWhosePaymentNeverGotAnAnswerIsCancelledAndItsAuthorizationVoided() {
+        UUID order = stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO));
+
+        expiry.expireStale(Instant.now());
+
+        Order expired = load(order);
+        assertThat(expired.status()).isEqualTo(Order.Status.CANCELLED);
+        assertThat(expired.payment()).isEqualTo(Order.PaymentStatus.VOIDING);
+        assertThat(published(order)).containsExactly(VoidPayment.TYPE, OrderCancelled.TYPE);
+    }
+
+    @Test
     void aConfirmedOrderThatWasNeverDispatchedIsHandedToShippingToDecide() {
-        UUID order = stored(LONG_AGO, placed -> placed.confirm(LONG_AGO));
+        UUID order = stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO).paymentAuthorized(LONG_AGO));
 
         expiry.expireStale(Instant.now());
 
@@ -79,10 +92,13 @@ class OrderExpiryIT {
         Instant now = Instant.now();
         List<UUID> untouched = List.of(
                 stored(now.minus(Duration.ofMinutes(10)), UnaryOperator.identity()),
-                stored(now.minus(Duration.ofDays(1)), placed -> placed.confirm(now.minus(Duration.ofDays(1)))),
-                stored(LONG_AGO, placed -> placed.confirm(LONG_AGO).requestCancellation("asked earlier", LONG_AGO)),
-                stored(LONG_AGO, placed -> placed.confirm(LONG_AGO).ship(LONG_AGO)),
-                stored(LONG_AGO, placed -> placed.confirm(LONG_AGO).ship(LONG_AGO).deliver(LONG_AGO)),
+                stored(now.minus(Duration.ofDays(1)), placed -> placed.stockReserved(now.minus(Duration.ofDays(1)))
+                        .paymentAuthorized(now.minus(Duration.ofDays(1)))),
+                stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO).paymentAuthorized(LONG_AGO)
+                        .requestCancellation("asked earlier", LONG_AGO)),
+                stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO).paymentAuthorized(LONG_AGO).ship(LONG_AGO)),
+                stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO).paymentAuthorized(LONG_AGO).ship(LONG_AGO)
+                        .deliver(LONG_AGO)),
                 stored(LONG_AGO, placed -> placed.cancel("cancelled earlier", LONG_AGO)));
         List<Order.Status> before = untouched.stream().map(id -> load(id).status()).toList();
 
@@ -96,7 +112,7 @@ class OrderExpiryIT {
     void twoScannersAtOnceExpireEveryOrderExactlyOnce() throws Exception {
         List<UUID> overdue = new ArrayList<>();
         for (int i = 0; i < 20; i++) {
-            overdue.add(stored(LONG_AGO, placed -> placed.confirm(LONG_AGO)));
+            overdue.add(stored(LONG_AGO, placed -> placed.stockReserved(LONG_AGO).paymentAuthorized(LONG_AGO)));
         }
         Instant now = Instant.now();
         var start = new CountDownLatch(1);
@@ -120,7 +136,7 @@ class OrderExpiryIT {
     /** Stores an order placed at {@code at}, after applying {@code steps} to it (all happening at that time). */
     private UUID stored(Instant at, UnaryOperator<Order> steps) {
         Order placed = Order.place(UUID.randomUUID(),
-                List.of(new OrderLine(Sku.of("KB-01"), 1, Money.of("10.00", "EUR"))), "Somewhere 1", at);
+                List.of(new OrderLine(Sku.of("KB-01"), 1, Money.of("10.00", "EUR"))), "Somewhere 1", "tok_ok", at);
         Order order = steps.apply(placed);
         transactions.inTransaction(() -> {
             orders.insert(order, UUID.randomUUID(), "expiry-it");

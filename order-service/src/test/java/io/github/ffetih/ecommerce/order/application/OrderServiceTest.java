@@ -75,7 +75,7 @@ class OrderServiceTest {
 
     private static PlaceOrderCommand order(int keyboards, int mice) {
         return new PlaceOrderCommand(CUSTOMER,
-                List.of(new PlaceOrderCommand.Line(KEYBOARD, keyboards), new PlaceOrderCommand.Line(MOUSE, mice)), null);
+                List.of(new PlaceOrderCommand.Line(KEYBOARD, keyboards), new PlaceOrderCommand.Line(MOUSE, mice)), null, "tok_ok");
     }
 
     @Test
@@ -105,7 +105,7 @@ class OrderServiceTest {
         UUID key = UUID.randomUUID();
         service.place(order(2, 1), key);
         var reordered = new PlaceOrderCommand(CUSTOMER,
-                List.of(new PlaceOrderCommand.Line(MOUSE, 1), new PlaceOrderCommand.Line(KEYBOARD, 2)), null);
+                List.of(new PlaceOrderCommand.Line(MOUSE, 1), new PlaceOrderCommand.Line(KEYBOARD, 2)), null, "tok_ok");
 
         assertThat(service.place(reordered, key).replayed()).isTrue();
     }
@@ -138,16 +138,16 @@ class OrderServiceTest {
         catalog.add(Sku.of("OLD-01"), "1.00", false);
 
         assertThatThrownBy(() -> service.place(new PlaceOrderCommand(UUID.randomUUID(),
-                List.of(new PlaceOrderCommand.Line(KEYBOARD, 1)), null), UUID.randomUUID()))
+                List.of(new PlaceOrderCommand.Line(KEYBOARD, 1)), null, "tok_ok"), UUID.randomUUID()))
                 .isInstanceOf(OrderRejectedException.class).hasMessageContaining("Unknown customer");
         assertThatThrownBy(() -> service.place(new PlaceOrderCommand(inactive,
-                List.of(new PlaceOrderCommand.Line(KEYBOARD, 1)), null), UUID.randomUUID()))
+                List.of(new PlaceOrderCommand.Line(KEYBOARD, 1)), null, "tok_ok"), UUID.randomUUID()))
                 .isInstanceOf(OrderRejectedException.class).hasMessageContaining("deactivated");
         assertThatThrownBy(() -> service.place(new PlaceOrderCommand(CUSTOMER,
-                List.of(new PlaceOrderCommand.Line(Sku.of("NOPE-01"), 1)), null), UUID.randomUUID()))
+                List.of(new PlaceOrderCommand.Line(Sku.of("NOPE-01"), 1)), null, "tok_ok"), UUID.randomUUID()))
                 .isInstanceOf(OrderRejectedException.class).hasMessageContaining("Unknown product");
         assertThatThrownBy(() -> service.place(new PlaceOrderCommand(CUSTOMER,
-                List.of(new PlaceOrderCommand.Line(Sku.of("OLD-01"), 1)), null), UUID.randomUUID()))
+                List.of(new PlaceOrderCommand.Line(Sku.of("OLD-01"), 1)), null, "tok_ok"), UUID.randomUUID()))
                 .isInstanceOf(OrderRejectedException.class).hasMessageContaining("no longer sold");
         assertThat(publishedEvents).isEmpty();
     }

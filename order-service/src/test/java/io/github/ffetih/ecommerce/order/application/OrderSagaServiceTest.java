@@ -1,6 +1,7 @@
 package io.github.ffetih.ecommerce.order.application;
 
 import io.github.ffetih.ecommerce.order.application.port.OrderEvents;
+import io.github.ffetih.ecommerce.order.application.port.PaymentCommands;
 import io.github.ffetih.ecommerce.order.application.port.ProcessedEvents;
 import io.github.ffetih.ecommerce.order.application.port.Transactions;
 import io.github.ffetih.ecommerce.order.domain.IllegalOrderTransitionException;
@@ -50,6 +51,22 @@ class OrderSagaServiceTest {
             published.add("cancelled: " + order.cancellationReason());
         }
     };
+    private final PaymentCommands commands = new PaymentCommands() {
+        @Override
+        public void authorize(Order order) {
+            published.add("authorize-payment");
+        }
+
+        @Override
+        public void capture(Order order) {
+            published.add("capture-payment");
+        }
+
+        @Override
+        public void voidPayment(Order order) {
+            published.add("void-payment");
+        }
+    };
     private final ProcessedEvents inbox = (consumer, eventId) -> processed.add(consumer + "/" + eventId);
     private final Transactions inline = new Transactions() {
         @Override
@@ -57,14 +74,23 @@ class OrderSagaServiceTest {
             return work.get();
         }
     };
-    private final OrderSagaService saga = new OrderSagaService(orders, events, inbox, inline,
+    private final OrderSagaService saga = new OrderSagaService(orders, events, new PaymentSteps(commands), inbox, inline,
             Clock.fixed(Instant.parse("2026-11-25T10:00:00Z"), ZoneOffset.UTC));
 
     private UUID placedOrder() {
         Order order = Order.place(UUID.randomUUID(),
-                List.of(new OrderLine(Sku.of("KB-01"), 1, Money.of("10.00", "EUR"))), "Somewhere 1", Instant.now());
+                List.of(new OrderLine(Sku.of("KB-01"), 1, Money.of("10.00", "EUR"))), "Somewhere 1", "tok_ok", Instant.now());
         orders.insert(order, UUID.randomUUID(), "hash");
         return order.id();
+    }
+
+    /** Stock reserved and payment authorized; what was sent on the way is forgotten. */
+    private UUID confirmedOrder() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        saga.paymentAuthorized(UUID.randomUUID(), orderId);
+        published.clear();
+        return orderId;
     }
 
     private Order.Status statusOf(UUID orderId) {
@@ -72,15 +98,79 @@ class OrderSagaServiceTest {
     }
 
     @Test
-    void stockReservedConfirmsTheOrderOnceEvenIfDeliveredTwice() {
+    void stockReservedAsksForThePaymentOnceEvenIfDeliveredTwice() {
         UUID orderId = placedOrder();
         UUID eventId = UUID.randomUUID();
 
         saga.stockReserved(eventId, orderId);
         saga.stockReserved(eventId, orderId);
+        saga.stockReserved(UUID.randomUUID(), orderId); // a second reservation event, not a redelivery
+
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.PLACED);
+        assertThat(published).containsExactly("authorize-payment");
+    }
+
+    @Test
+    void theAuthorizationConfirmsTheOrder() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        UUID eventId = UUID.randomUUID();
+
+        saga.paymentAuthorized(eventId, orderId);
+        saga.paymentAuthorized(eventId, orderId);
 
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.CONFIRMED);
-        assertThat(published).containsExactly("confirmed");
+        assertThat(published).containsExactly("authorize-payment", "confirmed");
+    }
+
+    @Test
+    void aDeclinedPaymentCancelsTheOrderAndReleasesTheStock() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+
+        saga.paymentDeclined(UUID.randomUUID(), orderId, "Card declined");
+
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
+        assertThat(published).containsExactly("authorize-payment", "cancelled: Payment declined: Card declined");
+    }
+
+    @Test
+    void cancellingWhileTheAuthorizationIsPendingVoidsItAndALateApprovalChangesNothing() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        saga.paymentAuthorized(UUID.randomUUID(), orderId);
+        saga.paymentVoided(UUID.randomUUID(), orderId);
+
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
+        assertThat(orders.findById(orderId).orElseThrow().payment()).isEqualTo(Order.PaymentStatus.VOIDED);
+        assertThat(published).containsExactly("authorize-payment", "void-payment", "cancelled: changed my mind");
+    }
+
+    @Test
+    void aDeclineAfterTheCustomerCancelledIsNotAnnouncedAgain() {
+        UUID orderId = placedOrder();
+        saga.stockReserved(UUID.randomUUID(), orderId);
+        saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
+        published.clear();
+
+        saga.paymentDeclined(UUID.randomUUID(), orderId, "Card declined");
+
+        assertThat(published).isEmpty();
+        assertThat(orders.findById(orderId).orElseThrow().cancellationReason()).isEqualTo("changed my mind");
+    }
+
+    @Test
+    void theDispatchCapturesAndAFailedCaptureDoesNotUndoTheShipment() {
+        UUID orderId = confirmedOrder();
+
+        saga.shipmentDispatched(UUID.randomUUID(), orderId);
+        saga.paymentCaptureFailed(UUID.randomUUID(), orderId, "Authorization expired");
+
+        assertThat(published).containsExactly("capture-payment");
+        assertThat(statusOf(orderId)).isEqualTo(Order.Status.SHIPPED);
+        assertThat(orders.findById(orderId).orElseThrow().payment()).isEqualTo(Order.PaymentStatus.OVERDUE);
     }
 
     @Test
@@ -106,8 +196,7 @@ class OrderSagaServiceTest {
 
     @Test
     void shipmentEventsMoveTheOrderForwardAndBlockCancellation() {
-        UUID orderId = placedOrder();
-        saga.stockReserved(UUID.randomUUID(), orderId);
+        UUID orderId = confirmedOrder();
 
         saga.shipmentDispatched(UUID.randomUUID(), orderId);
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.SHIPPED);
@@ -144,9 +233,7 @@ class OrderSagaServiceTest {
 
     @Test
     void cancellingAConfirmedOrderAsksShippingInsteadOfCancelling() {
-        UUID orderId = placedOrder();
-        saga.stockReserved(UUID.randomUUID(), orderId);
-        published.clear();
+        UUID orderId = confirmedOrder();
 
         Order requested = saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
 
@@ -156,22 +243,20 @@ class OrderSagaServiceTest {
     }
 
     @Test
-    void shippingAcceptingTheRequestCancelsTheOrderAndReleasesTheStock() {
-        UUID orderId = placedOrder();
-        saga.stockReserved(UUID.randomUUID(), orderId);
+    void shippingAcceptingTheRequestCancelsTheOrderAndReleasesTheStockAndTheHold() {
+        UUID orderId = confirmedOrder();
         saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
         published.clear();
 
         saga.shipmentCancelled(UUID.randomUUID(), orderId);
 
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.CANCELLED);
-        assertThat(published).containsExactly("cancelled: changed my mind");
+        assertThat(published).containsExactly("void-payment", "cancelled: changed my mind");
     }
 
     @Test
     void aDispatchDuringThePendingRequestWinsAndTheRefusalChangesNothing() {
-        UUID orderId = placedOrder();
-        saga.stockReserved(UUID.randomUUID(), orderId);
+        UUID orderId = confirmedOrder();
         saga.cancelByCustomer(orderId, "changed my mind", Requester.backOffice());
         published.clear();
 
@@ -179,6 +264,6 @@ class OrderSagaServiceTest {
         saga.cancellationRefused(UUID.randomUUID(), orderId);
 
         assertThat(statusOf(orderId)).isEqualTo(Order.Status.SHIPPED);
-        assertThat(published).isEmpty();
+        assertThat(published).as("nothing released; the money is taken").containsExactly("capture-payment");
     }
 }

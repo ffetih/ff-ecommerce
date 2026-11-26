@@ -29,15 +29,16 @@ drill_setup() {
 }
 
 # Places one unit of $SKU as bob, waits for the saga, prints the order id.
+# place [card-token]: tok_ok (default), tok_decline, tok_slow or tok_capture_fails picks the payment outcome.
 place() {
   curl -s -X POST $GW/orders -H "Authorization: Bearer $BOB" -H "$J" -H "Idempotency-Key: $(uuid)" \
-    -d "{\"lines\":[{\"sku\":\"$SKU\",\"quantity\":1}]}" | jq -r .id
+    -d "{\"cardToken\":\"${1:-tok_ok}\",\"lines\":[{\"sku\":\"$SKU\",\"quantity\":1}]}" | jq -r .id
   sleep 2
 }
 
 # Order, shipment and stock of one order.
 show() {
-  echo "order    = $(curl -s $GW/orders/$1 -H "Authorization: Bearer $BOB" | jq -r .status)"
+  echo "order    = $(curl -s $GW/orders/$1 -H "Authorization: Bearer $BOB" | jq -r '"\(.status), payment \(.paymentStatus)"')"
   echo "shipment = $(curl -s "$GW/shipments?orderId=$1" -H "Authorization: Bearer $ADMIN" | jq -r 'if .id then .status else "none" end')"
   echo "stock    = $(curl -s $GW/stock/$SKU -H "Authorization: Bearer $ADMIN" | jq -c '{onHand,reserved,available}')"
 }
