@@ -67,6 +67,12 @@ management:
       # Latency buckets, so Prometheus can compute percentiles (p95) across requests and instances.
       percentiles-histogram:
         http.server.requests: true
+  endpoint:
+    health:
+      # /actuator/health/liveness ("restart me") and /readiness ("send me traffic"), for container
+      # health checks and, in s12, Kubernetes probes. Both stay open like /actuator/health.
+      probes:
+        enabled: true
   endpoints:
     web:
       exposure:

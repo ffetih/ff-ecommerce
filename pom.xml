@@ -38,6 +38,13 @@
         <!-- Release train for Spring Boot 4.2 (used by the gateway). -->
         <spring-cloud.version>2026.0.0</spring-cloud.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Container images (ADR-0012). Only the services build one: they set jib.skip to false. -->
+        <jib-maven-plugin.version>3.5.1</jib-maven-plugin.version>
+        <jib.skip>true</jib.skip>
+        <image.registry>ghcr.io/ffetih/ff-ecommerce</image.registry>
+        <!-- CI overrides it with the commit's short SHA: -Dimage.tag=... -->
+        <image.tag>${project.version}</image.tag>
     </properties>
 
     <dependencyManagement>
@@ -82,6 +89,42 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+            </plugin>
+
+            <!--
+              One image per service, without a Dockerfile (ADR-0012). Dependencies, our own snapshot
+              modules (messaging, security, events) and the service's classes go into separate layers,
+              so a code change rebuilds only the top one.
+                ./mvnw package -DskipTests jib:dockerBuild   six images into the local Docker
+                ./mvnw package -DskipTests jib:build         push to ${image.registry} (needs a login)
+            -->
+            <plugin>
+                <groupId>com.google.cloud.tools</groupId>
+                <artifactId>jib-maven-plugin</artifactId>
+                <version>${jib-maven-plugin.version}</version>
+                <configuration>
+                    <from>
+                        <!-- Java 25 runtime only, no compiler or tools -->
+                        <image>eclipse-temurin:25-jre</image>
+                    </from>
+                    <to>
+                        <image>${image.registry}/${project.artifactId}:${image.tag}</image>
+                    </to>
+                    <container>
+                        <!-- Not root: a process that escapes the JVM cannot change the image -->
+                        <user>1000:1000</user>
+                        <!-- Heap from the container's memory limit, leaving room for metaspace and threads -->
+                        <jvmFlags>
+                            <jvmFlag>-XX:MaxRAMPercentage=75</jvmFlag>
+                        </jvmFlags>
+                        <labels>
+                            <!-- Links the GHCR package to the repository -->
+                            <org.opencontainers.image.source>https://github.com/ffetih/ff-ecommerce</org.opencontainers.image.source>
+                            <org.opencontainers.image.title>${project.artifactId}</org.opencontainers.image.title>
+                            <org.opencontainers.image.version>${image.tag}</org.opencontainers.image.version>
+                        </labels>
+                    </container>
+                </configuration>
             </plugin>
         </plugins>
     </build>

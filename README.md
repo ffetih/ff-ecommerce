@@ -44,6 +44,13 @@ docker compose up -d --wait               # PostgreSQL :5432, Kafka :9092, Keycl
 docker compose --profile observability up -d   # optional: Jaeger :16686, Prometheus :9090, Grafana :3000
 ```
 
+Or the whole system in containers, one command after building the images:
+
+```bash
+./mvnw -q package -DskipTests jib:dockerBuild
+docker compose --profile app --profile observability up -d --wait
+```
+
 Running the services, tokens and a walk-through of one order:
 [local run](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/local-run.html),
 [try it](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/try-it/order-to-delivery.html),
@@ -67,6 +74,6 @@ prove what it claims, and updated documentation.
 | s08 | Payments: authorize before confirming, capture at dispatch, void on cancellation; unknown provider outcomes resolved, never declined; double-entry ledger | done |
 | s09 | Returns: within 14 days of delivery, never more than was bought (database-enforced per line); refund when the goods arrive back, never more than was captured; idempotent restock | done |
 | s10 | Observability: one trace per order through HTTP, Kafka and the outbox; Prometheus scraping with its own client; Grafana dashboard and alert rules as code | done |
-| s11 | Packaging | next |
+| s11 | Packaging: an image per service (Jib), published to GHCR from CI; the whole system with one command; one token issuer inside and outside containers | in progress |
 
 Full roadmap and architecture decisions: [roadmap](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/roadmap.html), [ADRs](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/adr/index.html).

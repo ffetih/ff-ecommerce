@@ -78,6 +78,11 @@
         </dependency>
     </dependencies>
 
+    <properties>
+        <!-- This module is a service: it gets a container image (ADR-0012) -->
+        <jib.skip>false</jib.skip>
+    </properties>
+
     <build>
         <plugins>
             <plugin>

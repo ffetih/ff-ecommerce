@@ -65,6 +65,12 @@ management:
   # separate port that is never published to clients. Prometheus scrapes it there.
   server:
     port: ${MANAGEMENT_PORT:8089}
+  endpoint:
+    health:
+      # /actuator/health/liveness ("restart me") and /readiness ("send me traffic"), for container
+      # health checks and, in s12, Kubernetes probes. Both stay open like /actuator/health.
+      probes:
+        enabled: true
   endpoints:
     web:
       exposure:
