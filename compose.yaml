@@ -5,6 +5,11 @@
 #   Keycloak    http://localhost:8180  (realm "ecommerce"; admin console login kcadmin / kcadmin)
 #   Kafka UI    http://localhost:8090   (optional: docker compose --profile tools up -d)
 #
+# Observability (optional: docker compose --profile observability up -d; ADR-0011):
+#   Jaeger      http://localhost:16686  traces; services send OTLP to localhost:4318
+#   Prometheus  http://localhost:9090   scrapes /actuator/prometheus, evaluates the alert rules
+#   Grafana     http://localhost:3000   dashboard "ecommerce: overview"
+#
 # Image versions are kept in sync with the Testcontainers images in test-support.
 
 name: ecommerce
@@ -100,6 +105,51 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.20.0
+    profiles: ["observability"]
+    # All in one with in-memory storage: traces are gone after a restart, which is fine locally.
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP (what the services use)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  prometheus:
+    image: prom/prometheus:v3.13.5
+    profiles: ["observability"]
+    # Host network: the services run on the host, and "localhost" must mean the same thing to
+    # Prometheus as to them, including the Keycloak address in the scrape token's issuer.
+    network_mode: host
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  grafana:
+    image: grafana/grafana:13.2.4
+    profiles: ["observability"]
+    network_mode: host   # reaches Prometheus and Jaeger on localhost, like a browser would
+    environment:
+      # Local only: no login, everyone is admin. Datasources and dashboard come from infra/grafana.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/ecommerce-overview.json
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     deploy:
       resources:
         limits:

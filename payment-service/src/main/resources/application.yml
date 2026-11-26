@@ -58,6 +58,11 @@ management:
     metrics:
       export:
         enabled: false
+  metrics:
+    distribution:
+      # Latency buckets, so Prometheus can compute percentiles (p95) across requests and instances.
+      percentiles-histogram:
+        http.server.requests: true
   endpoints:
     web:
       exposure:
