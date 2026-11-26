@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.messaging;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -20,5 +21,13 @@ class MessagingTestApplication {
     @Bean
     MeterRegistry meterRegistry() {
         return new SimpleMeterRegistry();
+    }
+
+    /** A real service gets a registry wired to OpenTelemetry; here a tiny W3C tracer is enough. */
+    @Bean
+    ObservationRegistry observationRegistry() {
+        ObservationRegistry registry = ObservationRegistry.create();
+        registry.observationConfig().observationHandler(new TestTracer());
+        return registry;
     }
 }

@@ -10,6 +10,7 @@ import io.github.ffetih.ecommerce.messaging.outbox.Outbox;
 import io.github.ffetih.ecommerce.messaging.outbox.OutboxMetrics;
 import io.github.ffetih.ecommerce.messaging.outbox.OutboxRelay;
 import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -39,19 +40,23 @@ public class MessagingAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     Outbox outbox(DataSource dataSource, JsonMapper json, ObjectProvider<Clock> clock,
-                  MessagingProperties properties, Environment environment) {
+                  MessagingProperties properties, Environment environment,
+                  ObjectProvider<ObservationRegistry> observations) {
         String source = properties.source() != null
                 ? properties.source()
                 : environment.getProperty("spring.application.name", "unknown-service");
-        return new Outbox(JdbcClient.create(dataSource), json, clock.getIfAvailable(Clock::systemUTC), source);
+        return new Outbox(JdbcClient.create(dataSource), json, clock.getIfAvailable(Clock::systemUTC), source,
+                observations.getIfUnique(() -> ObservationRegistry.NOOP));
     }
 
     @Bean
     @ConditionalOnMissingBean
     OutboxRelay outboxRelay(DataSource dataSource, KafkaTemplate<String, String> kafka,
-                            PlatformTransactionManager transactionManager, MessagingProperties properties) {
+                            PlatformTransactionManager transactionManager, MessagingProperties properties,
+                            ObjectProvider<ObservationRegistry> observations) {
         return new OutboxRelay(JdbcClient.create(dataSource), kafka,
-                new TransactionTemplate(transactionManager), properties.outbox());
+                new TransactionTemplate(transactionManager), properties.outbox(),
+                observations.getIfUnique(() -> ObservationRegistry.NOOP));
     }
 
     /** Bound to the service's meter registry by Spring Boot, when the service has one (actuator). */

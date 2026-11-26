@@ -14,6 +14,9 @@ spring:
       properties:
         spring.deserializer.key.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
         spring.deserializer.value.delegate.class: org.apache.kafka.common.serialization.StringDeserializer
+    # The relay's tracing test reads the traceparent the producer observation writes into each record.
+    template:
+      observation-enabled: true
     producer:
       properties:
         # Fail fast when a topic does not exist (auto-creation is off in these tests).

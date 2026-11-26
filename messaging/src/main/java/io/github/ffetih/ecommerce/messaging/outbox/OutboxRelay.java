@@ -1,6 +1,9 @@
 package io.github.ffetih.ecommerce.messaging.outbox;
 
 import io.github.ffetih.ecommerce.messaging.MessagingProperties;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
+import io.micrometer.observation.transport.ReceiverContext;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,13 +36,22 @@ import java.util.concurrent.TimeUnit;
  * Delivery is at least once: a crash between "sent" and "marked published" sends the row again.
  * Consumers deduplicate by event id. Failed rows are retried with exponential backoff and never
  * dropped, because silently losing an event would leave services permanently inconsistent.
+ *
+ * <h2>Tracing</h2>
+ * Each send runs inside an "outbox relay" span whose parent is the {@code traceparent} stored with the
+ * row ({@link Outbox}). The Kafka producer span is created under it and writes its own traceparent into
+ * the record headers, so the consumer continues the trace of the request that caused the event, however
+ * long the row waited.
  */
 public class OutboxRelay implements SmartLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxRelay.class);
 
+    /** W3C Trace Context header name; also the outbox column that stores it. */
+    static final String TRACEPARENT = "traceparent";
+
     private static final String CLAIM_HEADS = """
-            SELECT id, event_id, topic, message_key, event_type, payload::text AS payload, attempts
+            SELECT id, event_id, topic, message_key, event_type, payload::text AS payload, attempts, traceparent
             FROM outbox_messages o
             WHERE o.published_at IS NULL
               AND o.next_attempt_at <= now()
@@ -55,7 +67,7 @@ public class OutboxRelay implements SmartLifecycle {
             """;
 
     private static final String LOCK_QUEUED_BEHIND = """
-            SELECT id, event_id, topic, message_key, event_type, payload::text AS payload, attempts
+            SELECT id, event_id, topic, message_key, event_type, payload::text AS payload, attempts, traceparent
             FROM outbox_messages
             WHERE topic = :topic AND message_key = :key AND published_at IS NULL AND id > :headId
             ORDER BY id
@@ -69,15 +81,17 @@ public class OutboxRelay implements SmartLifecycle {
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate transactions;
     private final MessagingProperties.Outbox settings;
+    private final ObservationRegistry observations;
 
     private volatile ScheduledExecutorService scheduler;
 
-    public OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka,
-                       TransactionTemplate transactions, MessagingProperties.Outbox settings) {
+    public OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, TransactionTemplate transactions,
+                       MessagingProperties.Outbox settings, ObservationRegistry observations) {
         this.jdbc = jdbc;
         this.kafka = kafka;
         this.transactions = transactions;
         this.settings = settings;
+        this.observations = observations;
     }
 
     /** One relay pass in one database transaction. Returns the number of messages published. */
@@ -138,10 +152,18 @@ public class OutboxRelay implements SmartLifecycle {
     }
 
     private void send(OutboxRow row) throws Exception {
-        var record = new ProducerRecord<>(row.topic(), row.key(), row.payload());
-        record.headers().add("event-id", row.eventId().toString().getBytes(StandardCharsets.UTF_8));
-        record.headers().add("event-type", row.eventType().getBytes(StandardCharsets.UTF_8));
-        kafka.send(record).get(settings.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+        // The stored traceparent plays the role of an incoming header: the span continues that trace.
+        var context = new ReceiverContext<OutboxRow>((stored, key) -> TRACEPARENT.equals(key) ? stored.traceparent() : null);
+        context.setCarrier(row);
+        Observation.createNotStarted("outbox.relay", () -> context, observations)
+                .contextualName("outbox relay " + row.eventType())
+                .lowCardinalityKeyValue("topic", row.topic())
+                .observeChecked(() -> {
+                    var record = new ProducerRecord<>(row.topic(), row.key(), row.payload());
+                    record.headers().add("event-id", row.eventId().toString().getBytes(StandardCharsets.UTF_8));
+                    record.headers().add("event-type", row.eventType().getBytes(StandardCharsets.UTF_8));
+                    kafka.send(record).get(settings.sendTimeout().toMillis(), TimeUnit.MILLISECONDS);
+                });
     }
 
     private void markFailed(OutboxRow row, Exception failure) {
@@ -184,11 +206,12 @@ public class OutboxRelay implements SmartLifecycle {
                 rs.getString("message_key"),
                 rs.getString("event_type"),
                 rs.getString("payload"),
-                rs.getInt("attempts"))).list();
+                rs.getInt("attempts"),
+                rs.getString("traceparent"))).list();
     }
 
     private record OutboxRow(long id, UUID eventId, String topic, String key, String eventType,
-                             String payload, int attempts) {
+                             String payload, int attempts, String traceparent) {
     }
 
     // --- background scheduling -------------------------------------------------------------------
