@@ -57,8 +57,8 @@ prove what it claims, and updated documentation.
 | s04 | Shipping and the order saga: reserve, confirm, ship, deliver, cancel with compensation; end-to-end tests | done |
 | s05 | Security: Keycloak, resource servers with enforced deny-by-default, identity from the token, service tokens, routing-only gateway | done |
 | s06 | Saga hardening: cancellation decided by shipping, delivery only after dispatch, order expiry, metrics, replay guards, inbox retention | done |
-| s07 | Documentation: role-based site, failure stories, runbooks | in progress |
-| s08 | Payments | planned |
+| s07 | Documentation: role-based site, domain model, failure stories with live drills, runbooks | done |
+| s08 | Payments | next |
 | s09 | Returns | planned |
 | s10 | Observability | planned |
 | s11 | Packaging | planned |
