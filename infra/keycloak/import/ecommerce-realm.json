@@ -78,7 +78,9 @@
         { "name": "aud-order-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
           "config": { "included.custom.audience": "order-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
         { "name": "aud-shipping-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
-          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-payment-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "payment-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
       ]
     },
     {
@@ -100,7 +102,9 @@
         { "name": "aud-order-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
           "config": { "included.custom.audience": "order-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
         { "name": "aud-shipping-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
-          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-payment-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "payment-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
       ]
     },
     {
@@ -125,7 +129,9 @@
         { "name": "aud-order-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
           "config": { "included.custom.audience": "order-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
         { "name": "aud-shipping-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
-          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
+          "config": { "included.custom.audience": "shipping-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } },
+        { "name": "aud-payment-service", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+          "config": { "included.custom.audience": "payment-service", "access.token.claim": "true", "id.token.claim": "false", "introspection.token.claim": "true" } }
       ]
     },
     {

@@ -44,10 +44,21 @@ final class Shop {
         return sku;
     }
 
-    /** Places an order for one SKU as the user behind {@code orders}; asserts it was accepted. */
+    /** Card token the simulated payment provider approves. */
+    static final String CARD_OK = "tok_ok";
+
+    /** Places an order for one SKU as the user behind {@code orders}, paid with a card that is approved. */
     static Api.Response placeOrder(Api orders, String sku, int quantity) {
+        return placeOrder(orders, sku, quantity, CARD_OK);
+    }
+
+    /**
+     * Places an order for one SKU as the user behind {@code orders}; asserts it was accepted. The card
+     * token picks the simulated provider's answer: tok_ok, tok_decline, tok_slow, tok_capture_fails.
+     */
+    static Api.Response placeOrder(Api orders, String sku, int quantity, String cardToken) {
         Api.Response placed = orders.post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":" + quantity + "}]}");
+                "{\"cardToken\":\"" + cardToken + "\",\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":" + quantity + "}]}");
         assertThat(placed.status()).isEqualTo(201);
         assertThat(placed.text("status")).isEqualTo("PLACED");
         return placed;
@@ -59,6 +70,10 @@ final class Shop {
 
     static void awaitOrderStatus(Api orders, String order, String status) throws InterruptedException {
         awaitUntil(() -> status.equals(orders.get("/api/v1/orders/" + order).text("status")));
+    }
+
+    static void awaitPaymentStatus(Api orders, String order, String paymentStatus) throws InterruptedException {
+        awaitUntil(() -> paymentStatus.equals(orders.get("/api/v1/orders/" + order).text("paymentStatus")));
     }
 
     /** Repeats the call until the answer is ready; fails with the last answer after 30 seconds. */

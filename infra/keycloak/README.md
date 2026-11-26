@@ -24,19 +24,20 @@ The ids are fixed so that scripts and tests can refer to them.
 
 | Client | Type | Used by | Audience in its tokens |
 | --- | --- | --- | --- |
-| `ecommerce-cli` | public, device authorization grant | people in a terminal | all four services |
-| `ecommerce-dev` | public, password grant | `scripts/dev-auth.sh`, end-to-end tests | all four services |
+| `ecommerce-cli` | public, device authorization grant | people in a terminal | all five services |
+| `ecommerce-dev` | public, password grant | `scripts/dev-auth.sh`, end-to-end tests | all five services |
 | `order-service` | confidential, client credentials | order-service calling catalog and customer | `catalog-service`, `customer-service` |
-| `shop` | public, authorization code + PKCE (S256) | the web console on `http://localhost:5173` | all four services |
+| `shop` | public, authorization code + PKCE (S256) | the web console on `http://localhost:5173` | all five services |
 
 `ecommerce-dev` exists only because scripts and tests need a non-interactive login. The password
 grant is deprecated by the OAuth 2.0 Security Best Current Practice; a real realm would not have it.
 
-Each service accepts a token only if its own name is in the `aud` claim. An `order-service` token
+Each service accepts a token only if its own name is in the `aud` claim. payment-service has no
+public API; people need its audience only for its actuator metrics (admin role). An `order-service` token
 therefore works against catalog and customer, and is rejected by shipping.
 
 For people, audience is not what separates the services: tokens from `ecommerce-cli`,
-`ecommerce-dev` and `shop` carry all four audiences. Roles and ownership rules do that separation (a customer
+`ecommerce-dev` and `shop` carry all five audiences. Roles and ownership rules do that separation (a customer
 reaches shipping, and gets 403). Audience is a real boundary for machine tokens only.
 
 ## Roles

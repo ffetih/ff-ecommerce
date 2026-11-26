@@ -76,7 +76,7 @@ class AccessControlE2EIT {
         String aliceId = Shop.registered(new Api(platform.gateway.baseUrl(), alice), "Alice Archer");
         // order-service checked alice with customer-service using its own client-credentials token.
         Api.Response placed = ordersAs(alice).post("/api/v1/orders", Map.of("Idempotency-Key", UUID.randomUUID().toString()),
-                "{\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":1}]}");
+                "{\"cardToken\":\"tok_ok\",\"lines\":[{\"sku\":\"" + sku + "\",\"quantity\":1}]}");
         assertThat(placed.status()).isEqualTo(201);
         assertThat(placed.text("customerId")).isEqualTo(aliceId).isEqualTo("a11ce000-0000-4000-8000-000000000001");
         String order = "/api/v1/orders/" + placed.text("id");

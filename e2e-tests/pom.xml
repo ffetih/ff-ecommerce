@@ -49,6 +49,13 @@
         </dependency>
         <dependency>
             <groupId>io.github.ffetih.ecommerce</groupId>
+            <artifactId>payment-service</artifactId>
+            <version>${project.version}</version>
+            <type>pom</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.github.ffetih.ecommerce</groupId>
             <artifactId>gateway</artifactId>
             <version>${project.version}</version>
             <type>pom</type>
