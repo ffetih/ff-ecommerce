@@ -16,3 +16,23 @@ spec:
   timeout: 10m
   prune: true          # delete what was removed from Git
   wait: true           # Ready only when everything it applied is ready (the operators running)
+---
+# Layer 2: the shared services our code talks to (Kafka, PostgreSQL), written as custom resources
+# of the operators above. dependsOn makes Flux wait until infra-controllers is Ready, so the CRDs exist.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-configs
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-controllers
+  path: ./deploy/infrastructure/configs
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  interval: 10m
+  retryInterval: 1m
+  timeout: 10m         # a first Kafka start (certificates, broker, entity operator) takes a few minutes
+  prune: true
+  wait: true           # Ready only when the Kafka and Cluster resources report Ready
