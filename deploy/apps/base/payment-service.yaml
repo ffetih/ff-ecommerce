@@ -12,8 +12,6 @@ spec:
     type: simple
     acls:
       # writes (the outbox relay)
-      - resource: { type: topic, name: payment.events, patternType: literal }
-        operations: [Write]
       # reads (the listeners)
       - resource: { type: topic, name: payment.commands, patternType: literal }
         operations: [Read]
