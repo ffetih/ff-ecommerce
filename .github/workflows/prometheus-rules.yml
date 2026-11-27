@@ -1,0 +1,23 @@
+name: prometheus-rules.yml
+on:
+  push:
+    branches:
+      - main
+      - "sprint/**"
+  pull_request:
+
+permissions:
+  contents: read
+jobs:
+  check-prometheus-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check PrometheusRule matches infra/prometheus/rules/ecommerce.yml
+        run: |
+          bash scripts/prometheus-rule.sh
+          if ! git diff --exit-code deploy/infrastructure/monitoring/ecommerce-rules.yaml; then
+           echo "::error::deploy/infrastructure/monitoring/ecommerce-rules.yaml is out of sync. Run scripts/prometheus-rule.sh and commit the result."
+           exit 1
+          fi
