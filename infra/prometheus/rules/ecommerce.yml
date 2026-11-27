@@ -20,7 +20,7 @@ groups:
         expr: outbox_oldest_pending_age_seconds > 30
         for: 1m
         labels:
-          severity: warning
+          severity: critical
         annotations:
           summary: "{{ $labels.service }}: oldest unpublished event is {{ $value | humanizeDuration }} old"
           description: "Kafka unreachable, or one key stuck behind a failing message. See last_error in outbox_messages."
