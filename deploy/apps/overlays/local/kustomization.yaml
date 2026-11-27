@@ -38,4 +38,4 @@ images:
   - name: ghcr.io/ffetih/ff-ecommerce/shipping-service
     newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:shipping-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/gateway
-    newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:gateway:tag"}
+    newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:gateway:tag"}
