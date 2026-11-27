@@ -28,14 +28,14 @@ secretGenerator:
 # newTag that carries a $imagepolicy marker (deploy/clusters/local/image-automation.yaml) and commits.
 images:
   - name: ghcr.io/ffetih/ff-ecommerce/catalog-service
-    newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:catalog-service:tag"}
+    newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:catalog-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/customer-service
     newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:customer-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/order-service
-    newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:order-service:tag"}
+    newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:order-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/payment-service
-    newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:payment-service:tag"}
+    newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:payment-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/shipping-service
-    newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:shipping-service:tag"}
+    newTag: main-86-ee3fa25 # {"$imagepolicy": "flux-system:shipping-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/gateway
     newTag: main-80-9ad4698 # {"$imagepolicy": "flux-system:gateway:tag"}
