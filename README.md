@@ -7,8 +7,9 @@ payments and shipping, each with its own database, talking through Kafka. The fo
 parts of distributed systems rather than on feature count: consistent stock under concurrency, a saga
 with correct compensation, reliable event publishing with the transactional outbox, idempotent
 consumers, payments that never charge twice even when the provider does not answer, a double-entry
-ledger, returns and refunds whose limits hold under concurrency, a real security boundary, and one
-trace per order through HTTP, Kafka and the outbox.
+ledger, returns and refunds whose limits hold under concurrency, a real security boundary, one
+trace per order through HTTP, Kafka and the outbox, and a Kubernetes cluster kept equal to the
+repository by GitOps.
 
 **Documentation: [ffetih.github.io/ff-ecommerce-docs](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/index.html)**, by role:
 [architect](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/index.html) ·
@@ -19,7 +20,7 @@ Start with [fourteen failure stories](https://ffetih.github.io/ff-ecommerce-docs
 exists because of one concrete way the system could end up wrong.
 
 **Stack:** Java 25 · Spring Boot 4.2 · PostgreSQL 17 · Apache Kafka (KRaft) · Keycloak 26 · Testcontainers ·
-OpenTelemetry · Jaeger · Prometheus · Grafana
+OpenTelemetry · Jaeger · Prometheus · Grafana · Jib · Kubernetes (k3d) · Flux · Strimzi · CloudNativePG
 
 ## Services
 
@@ -51,6 +52,17 @@ Or the whole system in containers, one command after building the images:
 docker compose --profile app --profile observability up -d --wait
 ```
 
+Or on Kubernetes, kept in sync with `deploy/` by Flux (needs k3d, kubectl and the Flux CLI):
+
+```bash
+scripts/cluster.sh create                 # local k3d cluster; then bootstrap Flux once (see the guide)
+flux get kustomizations                   # operators → Kafka, PostgreSQL, Keycloak → monitoring → services
+```
+
+The shop is then at `shop.localtest.me:8888`, Grafana, Jaeger and the alert mailbox next to it:
+[run on Kubernetes](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/kubernetes-run.html),
+[how it is deployed](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/deployment.html).
+
 Running the services, tokens and a walk-through of one order:
 [local run](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/local-run.html),
 [try it](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/try-it/order-to-delivery.html),
@@ -75,6 +87,7 @@ prove what it claims, and updated documentation.
 | s09 | Returns: within 14 days of delivery, never more than was bought (database-enforced per line); refund when the goods arrive back, never more than was captured; idempotent restock | done |
 | s10 | Observability: one trace per order through HTTP, Kafka and the outbox; Prometheus scraping with its own client; Grafana dashboard and alert rules as code | done |
 | s11 | Packaging: an image per service (Jib), published to GHCR from CI; the whole system with one command; one token issuer inside and outside containers | done |
-| s12 | Kubernetes and GitOps: k3d synced by Flux, Kafka users and ACLs, alerts delivered | next |
+| s12 | Kubernetes and GitOps: a k3d cluster kept equal to the repository by Flux; operators for Kafka and PostgreSQL; topics in Git and Kafka ACLs per service; new images rolled out by Flux's own commits; alerts by mail; drift, pod-kill and ACL drills | done |
+| s13+ | Optional: wishlist with back-in-stock and price-drop notifications; promotions | next |
 
 Full roadmap and architecture decisions: [roadmap](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/roadmap.html), [ADRs](https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/architecture/adr/index.html).
