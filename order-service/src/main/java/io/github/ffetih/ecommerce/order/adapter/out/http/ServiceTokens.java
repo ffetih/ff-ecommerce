@@ -2,6 +2,7 @@ package io.github.ffetih.ecommerce.order.adapter.out.http;
 
 import io.github.ffetih.ecommerce.order.config.ClientProperties;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.http.converter.FormHttpMessageConverter;
@@ -35,8 +36,8 @@ class ServiceTokens {
         var store = new InMemoryOAuth2AuthorizedClientService(registrations);
         var manager = new AuthorizedClientServiceOAuth2AuthorizedClientManager(registrations, store);
         manager.setAuthorizedClientProvider(OAuth2AuthorizedClientProviderBuilder.builder()
-                .clientCredentials(grant -> grant.accessTokenResponseClient(tokenClient(properties)))
-                .build());
+            .clientCredentials(grant -> grant.accessTokenResponseClient(tokenClient(properties)))
+            .build());
         this.interceptor = new ServiceTokenInterceptor(manager, store, registrationId);
     }
 
@@ -44,25 +45,29 @@ class ServiceTokens {
         return interceptor;
     }
 
-    /** Spring Security's default token client configuration, plus timeouts. */
+    /**
+     * Spring Security's default token client configuration, plus timeouts.
+     */
     private static RestClientClientCredentialsTokenResponseClient tokenClient(ClientProperties properties) {
         HttpClient http = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(properties.tokenConnectTimeout())
-                .build();
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(properties.tokenConnectTimeout())
+            .build();
         var requestFactory = new JdkClientHttpRequestFactory(http);
         requestFactory.setReadTimeout(properties.tokenReadTimeout());
+        var errors = new OAuth2ErrorResponseErrorHandler();
         RestClient rest = RestClient.builder()
-                .requestFactory(requestFactory)
-                .messageConverters(converters -> {
-                    converters.clear();
-                    converters.add(new FormHttpMessageConverter());
-                    converters.add(new OAuth2AccessTokenResponseHttpMessageConverter());
-                })
-                .defaultStatusHandler(new OAuth2ErrorResponseErrorHandler())
-                .build();
+            .requestFactory(requestFactory)
+            .configureMessageConverters(clientBuilder -> {
+                clientBuilder.addCustomConverter(new FormHttpMessageConverter());
+                clientBuilder.addCustomConverter(new OAuth2AccessTokenResponseHttpMessageConverter());
+            })
+            .defaultStatusHandler(HttpStatusCode::isError, (request, response) ->
+                errors.handleError(request.getURI(), request.getMethod(), response)).build();
         var client = new RestClientClientCredentialsTokenResponseClient();
         client.setRestClient(rest);
         return client;
     }
+
 }
+
