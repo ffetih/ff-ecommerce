@@ -165,9 +165,9 @@ spec:
   git:
     checkout:
       ref:
-        branch: sprint/s12-kubernetes-gitops   # the branch Flux follows; switched to main with gotk-sync.yaml
+        branch: main                           # the branch Flux follows (gotk-sync.yaml)
     push:
-      branch: sprint/s12-kubernetes-gitops
+      branch: main
     commit:
       author:
         name: fluxcdbot
