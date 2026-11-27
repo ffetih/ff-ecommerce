@@ -28,14 +28,14 @@ secretGenerator:
 # newTag that carries a $imagepolicy marker (deploy/clusters/local/image-automation.yaml) and commits.
 images:
   - name: ghcr.io/ffetih/ff-ecommerce/catalog-service
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:catalog-service:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:catalog-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/customer-service
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:customer-service:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:customer-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/order-service
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:order-service:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:order-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/payment-service
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:payment-service:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:payment-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/shipping-service
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:shipping-service:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:shipping-service:tag"}
   - name: ghcr.io/ffetih/ff-ecommerce/gateway
-    newTag: main-69-3fabae9 # {"$imagepolicy": "flux-system:gateway:tag"}
+    newTag: main-78-4a32577 # {"$imagepolicy": "flux-system:gateway:tag"}
