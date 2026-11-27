@@ -1,0 +1,115 @@
+# Prometheus, Alertmanager and Grafana, run by the Prometheus Operator (kube-prometheus-stack).
+# It sits with the operators because it brings CRDs (ServiceMonitor, PrometheusRule) that later layers use.
+# In compose (s10) Prometheus read a static target list; here it discovers targets from ServiceMonitors.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: prometheus-community
+  namespace: monitoring
+spec:
+  url: https://prometheus-community.github.io/helm-charts
+  interval: 1h
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-prometheus-stack
+  namespace: monitoring
+spec:
+  interval: 1h
+  timeout: 10m
+  chart:
+    spec:
+      chart: kube-prometheus-stack
+      version: "94.1.0"                # pinned: operator v0.95.2, Prometheus v3.16.0, Alertmanager v0.35.1
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  values:
+    # k3s runs etcd, the scheduler, the controller manager and kube-proxy inside one process that
+    # exposes no scrape targets; enabled, they would show as down targets with alerts.
+    kubeEtcd: { enabled: false }
+    kubeScheduler: { enabled: false }
+    kubeControllerManager: { enabled: false }
+    kubeProxy: { enabled: false }
+    # One Docker container is the whole "node"; container metrics come from the kubelet (cAdvisor).
+    nodeExporter: { enabled: false }
+
+    prometheusOperator:
+      resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+    kube-state-metrics:                # pod restarts, rollout state: what the k8s alerts and drills read
+      resources: { requests: { cpu: 20m, memory: 64Mi }, limits: { memory: 128Mi } }
+
+    prometheus:
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts: [prometheus.localtest.me]
+        paths: [/]
+      prometheusSpec:
+        # Pick up every ServiceMonitor and PrometheusRule in the cluster, not only the chart's own.
+        serviceMonitorSelectorNilUsesHelmValues: false
+        podMonitorSelectorNilUsesHelmValues: false
+        ruleSelectorNilUsesHelmValues: false
+        scrapeInterval: 15s
+        evaluationInterval: 15s
+        retention: 2d
+        resources: { requests: { cpu: 200m, memory: 512Mi }, limits: { memory: 1Gi } }
+
+    alertmanager:
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts: [alertmanager.localtest.me]
+        paths: [/]
+      alertmanagerSpec:
+        resources: { requests: { cpu: 20m, memory: 64Mi }, limits: { memory: 128Mi } }
+      # Alerts from the ecommerce namespace (ours, and the chart's pod/deployment alerts for our pods)
+      # go to a mailbox: Mailpit catches every mail, nothing leaves the machine. Everything else is dropped.
+      config:
+        global:
+          resolve_timeout: 5m
+          smtp_smarthost: mailpit.monitoring:1025
+          smtp_from: alertmanager@ecommerce.local
+          smtp_require_tls: false
+        route:
+          group_by: [alertname, service]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+          receiver: "null"
+          routes:
+            - receiver: "null"
+              matchers: ['alertname = "Watchdog"']   # always firing on purpose: proves the pipeline works
+            - receiver: ops-mail
+              matchers: ['namespace = "ecommerce"']
+        receivers:
+          - name: "null"
+          - name: ops-mail
+            email_configs:
+              - to: ops@ecommerce.local
+                send_resolved: true
+
+    grafana:
+      # Same as compose: anonymous admin, local only.
+      grafana.ini:
+        auth.anonymous: { enabled: true, org_role: Admin }
+      adminPassword: admin
+      ingress:
+        enabled: true
+        ingressClassName: traefik
+        hosts: [grafana.localtest.me]
+      # The Prometheus datasource has uid "prometheus", which our dashboard refers to. Jaeger is added
+      # with uid "jaeger", as in compose.
+      additionalDataSources:
+        - { name: Jaeger, uid: jaeger, type: jaeger, access: proxy, url: "http://jaeger.monitoring:16686" }
+      resources: { requests: { cpu: 50m, memory: 192Mi }, limits: { memory: 384Mi } }

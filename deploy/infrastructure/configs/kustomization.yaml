@@ -1,0 +1,36 @@
+# Shared services in the ecommerce namespace. Everything our services connect to lives in the same
+# namespace as the services: Strimzi writes each KafkaUser's password into a Secret next to it, and a
+# pod can only mount Secrets from its own namespace.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: ecommerce
+resources:
+  - namespace.yaml
+  - kafka.yaml
+  - postgres.yaml
+  - keycloak.yaml
+  - ../../../infra/keycloak/import   # the realm ConfigMap, generated from the same JSON compose uses
+
+# One login per service (ADR-0002), the same credentials as compose. Local cluster only: real
+# environments would bring these from a secret store, never from Git.
+# The fixed names (no hash suffix) are what the Cluster's passwordSecret and, later, the services refer to.
+generatorOptions:
+  disableNameSuffixHash: true
+  labels:
+    cnpg.io/reload: "true"   # CloudNativePG re-applies a role's password when its Secret changes
+secretGenerator:
+  - name: catalog-db-credentials
+    type: kubernetes.io/basic-auth
+    literals: [username=catalog_service, password=catalog_service]
+  - name: customer-db-credentials
+    type: kubernetes.io/basic-auth
+    literals: [username=customer_service, password=customer_service]
+  - name: order-db-credentials
+    type: kubernetes.io/basic-auth
+    literals: [username=order_service, password=order_service]
+  - name: payment-db-credentials
+    type: kubernetes.io/basic-auth
+    literals: [username=payment_service, password=payment_service]
+  - name: shipping-db-credentials
+    type: kubernetes.io/basic-auth
+    literals: [username=shipping_service, password=shipping_service]

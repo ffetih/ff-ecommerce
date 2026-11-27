@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  labels: { app: gateway }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway }
+  template:
+    metadata:
+      labels: { app: gateway }
+    spec:
+      containers:
+        - name: gateway
+          image: ghcr.io/ffetih/ff-ecommerce/gateway     # the tag comes from the overlay
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: management, containerPort: 8089 }   # actuator, never routed to clients
+          envFrom:
+            - configMapRef: { name: platform }       # addresses shared by every service (overlay)
+          env:
+            - { name: CATALOG_SERVICE_URL, value: "http://catalog-service:8081" }
+            - { name: CUSTOMER_SERVICE_URL, value: "http://customer-service:8082" }
+            - { name: ORDER_SERVICE_URL, value: "http://order-service:8083" }
+            - { name: SHIPPING_SERVICE_URL, value: "http://shipping-service:8084" }
+          # Spring Boot's health groups (s11): liveness = the JVM is fine, readiness = it may take traffic.
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 5
+            failureThreshold: 36                       # up to 3 minutes to start
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: management }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: management }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { memory: 512Mi }               # the JVM takes 75% of it as heap (Jib jvmFlags)
+          securityContext:
+            runAsNonRoot: true                         # the image runs as 1000:1000
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  labels: { app: gateway }               # what the ServiceMonitors select on
+spec:
+  selector: { app: gateway }
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+    - { name: management, port: 8089, targetPort: management }   # scraped by Prometheus, not routed by the Ingress

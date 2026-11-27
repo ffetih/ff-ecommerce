@@ -1,0 +1,13 @@
+# The six services as they are everywhere: Deployments, Services, their Kafka logins and the topics.
+# What differs per cluster (addresses, image tags, the front door) is in overlays/.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - kafka-topics.yaml
+  - catalog-service.yaml
+  - customer-service.yaml
+  - order-service.yaml
+  - payment-service.yaml
+  - shipping-service.yaml
+  - gateway.yaml
+  - service-monitors.yaml

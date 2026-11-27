@@ -1,0 +1,10 @@
+# What we add to the monitoring stack: our alerts, our dashboard, traces and a mailbox for alerts.
+# The namespace itself and the stack come from the controllers layer (kube-prometheus-stack.yaml).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - ecommerce-rules.yaml               # generated from infra/prometheus/rules (scripts/prometheus-rule.sh)
+  - ../../../infra/grafana/dashboards  # the dashboard ConfigMap, from the same JSON compose uses
+  - jaeger.yaml
+  - mailpit.yaml

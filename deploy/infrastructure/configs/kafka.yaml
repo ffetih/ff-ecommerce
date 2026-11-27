@@ -1,0 +1,56 @@
+# Kafka, run by the Strimzi operator. Same shape as compose (one KRaft node that is both controller
+# and broker, replication factor 1) with one difference: clients must log in. The listener takes
+# SCRAM-SHA-512 credentials, and `simple` authorization denies everything a KafkaUser's ACLs don't allow.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: dual-role
+  labels:
+    strimzi.io/cluster: kafka      # the Kafka resource this pool belongs to
+spec:
+  replicas: 1
+  roles:
+    - controller
+    - broker
+  storage:
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim     # a PVC on k3s's local-path storage: data survives a pod restart
+        size: 2Gi
+        deleteClaim: false
+        kraftMetadata: shared      # the KRaft metadata log lives on the same volume
+  jvmOptions:
+    -Xms: 256m
+    -Xmx: 512m
+  resources:
+    requests: { cpu: 200m, memory: 768Mi }
+    limits: { memory: 1Gi }
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: kafka                      # clients connect to kafka-kafka-bootstrap:9092
+spec:
+  kafka:
+    version: 4.3.2                 # pinned; the default of Strimzi 1.3.1
+    metadataVersion: 4.3-IV0
+    listeners:
+      - name: scram
+        port: 9092
+        type: internal             # a ClusterIP Service, reachable only inside the cluster
+        tls: false                 # SASL_PLAINTEXT: passwords are hashed in the handshake, data is not encrypted
+        authentication:
+          type: scram-sha-512
+    authorization:
+      type: simple                 # Kafka's ACL authorizer; Strimzi's own components are super users
+    config:
+      offsets.topic.replication.factor: 1
+      transaction.state.log.replication.factor: 1
+      transaction.state.log.min.isr: 1
+      default.replication.factor: 1
+      min.insync.replicas: 1
+      auto.create.topics.enable: false   # topics exist because Git declares them (KafkaTopic), not by accident
+  entityOperator:
+    topicOperator: {}              # turns KafkaTopic resources into topics
+    userOperator: {}               # turns KafkaUser resources into SCRAM credentials + ACLs

@@ -1,0 +1,9 @@
+# The realm as a ConfigMap, for the Kubernetes deployment (deploy/infrastructure/configs). Compose mounts
+# this folder directly; the cluster gets the same file through this generator, so there is one realm.
+# Keycloak imports only *.json files, so it ignores this one.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+configMapGenerator:
+  - name: keycloak-realm      # gets a content-hash suffix: a realm change renames it and rolls Keycloak
+    files:
+      - ecommerce-realm.json

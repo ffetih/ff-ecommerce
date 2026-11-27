@@ -1,0 +1,45 @@
+# Strimzi: runs Kafka in Kubernetes. Afterwards a Kafka cluster, its topics and its users are
+# resources (Kafka, KafkaNodePool, KafkaTopic, KafkaUser) that the operator turns into brokers,
+# topics, SCRAM credentials and ACLs.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strimzi
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: strimzi
+  namespace: strimzi
+spec:
+  url: https://strimzi.io/charts/
+  interval: 24h
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: strimzi-kafka-operator
+  namespace: strimzi
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: strimzi-kafka-operator
+      version: "1.3.1"            # pinned; chart and operator share the version
+      sourceRef:
+        kind: HelmRepository
+        name: strimzi
+  install:
+    crds: CreateReplace           # the CRDs come with the chart; upgrades update them too
+  upgrade:
+    crds: CreateReplace
+  values:
+    # The Kafka cluster lives in the "ecommerce" namespace, next to the services that use its user
+    # Secrets; the operator watches every namespace.
+    watchAnyNamespace: true
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 384Mi

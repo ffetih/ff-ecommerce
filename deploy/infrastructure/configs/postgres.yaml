@@ -1,0 +1,68 @@
+# PostgreSQL, run by CloudNativePG. One instance, like compose, holding one database and one login per
+# service (ADR-0002). What initdb scripts do in compose is declared here: managed roles create the
+# logins, Database resources create the databases. Services connect to postgres-rw:5432.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+spec:
+  instances: 1
+  # Pinned to the same major version as compose (17). The operator's default would be 18.
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.12-202611230809-system-trixie
+  storage:
+    size: 2Gi
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 512Mi }
+  managed:
+    roles:
+      - { name: catalog_service,  ensure: present, login: true, passwordSecret: { name: catalog-db-credentials } }
+      - { name: customer_service, ensure: present, login: true, passwordSecret: { name: customer-db-credentials } }
+      - { name: order_service,    ensure: present, login: true, passwordSecret: { name: order-db-credentials } }
+      - { name: payment_service,  ensure: present, login: true, passwordSecret: { name: payment-db-credentials } }
+      - { name: shipping_service, ensure: present, login: true, passwordSecret: { name: shipping-db-credentials } }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: catalog-db
+spec:
+  name: catalog_db
+  owner: catalog_service
+  cluster: { name: postgres }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: customer-db
+spec:
+  name: customer_db
+  owner: customer_service
+  cluster: { name: postgres }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: order-db
+spec:
+  name: order_db
+  owner: order_service
+  cluster: { name: postgres }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: payment-db
+spec:
+  name: payment_db
+  owner: payment_service
+  cluster: { name: postgres }
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: shipping-db
+spec:
+  name: shipping_db
+  owner: shipping_service
+  cluster: { name: postgres }

@@ -1,0 +1,78 @@
+# payment-service's Kafka login. Strimzi's User Operator creates SCRAM credentials and a Secret named
+# payment-service (keys: password, sasl.jaas.config), and sets these ACLs. Read and Write include Describe.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaUser
+metadata:
+  name: payment-service
+  labels: { strimzi.io/cluster: kafka }
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # writes (the outbox relay)
+      - resource: { type: topic, name: payment.events, patternType: literal }
+        operations: [Write]
+      # reads (the listeners)
+      - resource: { type: topic, name: payment.commands, patternType: literal }
+        operations: [Read]
+      # dead letters of what it reads
+      - resource: { type: topic, name: payment.commands-dlt, patternType: literal }
+        operations: [Write]
+      # its consumer groups: payment-service.<topic> and the fallback payment-service
+      - resource: { type: group, name: payment-service, patternType: prefix }
+        operations: [Read]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels: { app: payment-service }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: payment-service }
+  template:
+    metadata:
+      labels: { app: payment-service }
+    spec:
+      containers:
+        - name: payment-service
+          image: ghcr.io/ffetih/ff-ecommerce/payment-service     # the tag comes from the overlay
+          ports:
+            - { name: http, containerPort: 8085 }
+          envFrom:
+            - configMapRef: { name: platform }       # addresses shared by every service (overlay)
+          env:
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres-rw:5432/payment_db" }
+            - { name: SPRING_DATASOURCE_USERNAME, valueFrom: { secretKeyRef: { name: payment-db-credentials, key: username } } }
+            - { name: SPRING_DATASOURCE_PASSWORD, valueFrom: { secretKeyRef: { name: payment-db-credentials, key: password } } }
+            - { name: SPRING_KAFKA_PROPERTIES_SASL_JAAS_CONFIG, valueFrom: { secretKeyRef: { name: payment-service, key: sasl.jaas.config } } }
+          # Spring Boot's health groups (s11): liveness = the JVM is fine, readiness = it may take traffic.
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36                       # up to 3 minutes to start
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { memory: 512Mi }               # the JVM takes 75% of it as heap (Jib jvmFlags)
+          securityContext:
+            runAsNonRoot: true                         # the image runs as 1000:1000
+            allowPrivilegeEscalation: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-service
+  labels: { app: payment-service }               # what the ServiceMonitors select on
+spec:
+  selector: { app: payment-service }
+  ports:
+    - { name: http, port: 8085, targetPort: http }
