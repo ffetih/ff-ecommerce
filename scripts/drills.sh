@@ -1,14 +1,53 @@
 # Helpers for the failure drills: https://ffetih.github.io/ff-ecommerce-docs/ff-ecommerce/developer/try-it/failure-drills.html
 #
-#   source scripts/drills.sh      # once per terminal, from the repository root
-#   drill_setup                   # tokens, a product with 10 units, bob's profile
+#   source scripts/drills.sh                       # once per terminal, from the repository root
+#   DRILL_TARGET=k8s source scripts/drills.sh      # the same, against the k3d cluster (s12)
+#   drill_setup                                    # tokens, a product with 10 units, bob's profile
 #
-# Requires curl, jq, docker compose, and the whole system running.
+# Requires curl, jq, and the whole system running: docker compose (default), or kubectl for k8s.
+
+# Where the system runs. The addresses are the only difference for most helpers; the few that read
+# a database or an actuator endpoint directly go through _psql and _actuator below.
+# Kept in a variable of our own: with "DRILL_TARGET=k8s source …" bash drops DRILL_TARGET (and any
+# assignment to it) as soon as source returns, but the helpers run later.
+_drill_target=${DRILL_TARGET:-compose}
+if [[ $_drill_target == k8s ]]; then
+  KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak.localtest.me:8888}
+  GW=${GW:-http://shop.localtest.me:8888/api/v1}
+  JAEGER=${JAEGER:-http://jaeger.localtest.me:8888}
+fi
 
 source "$(dirname "${BASH_SOURCE[0]}")/dev-auth.sh"
 
 GW=${GW:-http://localhost:8080/api/v1}
+JAEGER=${JAEGER:-http://localhost:16686}
 J='Content-Type: application/json'
+
+# psql in one service's database: _psql <db> <psql options...>. Compose logs in as the service's own
+# user; in the cluster kubectl exec runs psql as postgres inside the CloudNativePG pod.
+_psql() {
+  local db=$1; shift
+  if [[ $_drill_target == k8s ]]; then
+    kubectl exec -i -n ecommerce postgres-1 -c postgres -- psql -U postgres -d "$db" "$@"
+  else
+    local user=${db%_db}_service
+    docker compose exec -T -e PGPASSWORD="$user" postgres psql -h localhost -U "$user" -d "$db" "$@"
+  fi
+}
+
+# GET an actuator path of order-service as admin: _actuator <path>. In the cluster the service has no
+# address outside, so a short-lived port-forward stands in for localhost:8083.
+_actuator() {
+  if [[ $_drill_target == k8s ]]; then
+    kubectl port-forward -n ecommerce svc/order-service 18083:8083 >/dev/null 2>&1 &
+    local pf=$!
+    sleep 1
+    curl -s -H "Authorization: Bearer $ADMIN" "localhost:18083/actuator/$1"
+    kill $pf 2>/dev/null; wait $pf 2>/dev/null
+  else
+    curl -s -H "Authorization: Bearer $ADMIN" "localhost:8083/actuator/$1"
+  fi
+}
 
 uuid() { cat /proc/sys/kernel/random/uuid; }
 
@@ -45,28 +84,32 @@ show() {
 
 # order-service's dead-letter counter: [count, tags].
 dl() {
-  curl -s -H "Authorization: Bearer $ADMIN" localhost:8083/actuator/metrics/messaging.dead.letters \
-    | jq -c '[.measurements[0].value, .availableTags]'
+  _actuator metrics/messaging.dead.letters | jq -c '[.measurements[0].value, .availableTags]'
 }
 
 # order-service's outbox: messages waiting for Kafka, and how long the oldest has waited (seconds).
 outbox() {
   for m in outbox.pending outbox.oldest.pending.age; do
-    printf '%-28s %s\n' $m "$(curl -s -H "Authorization: Bearer $ADMIN" localhost:8083/actuator/metrics/$m | jq '.measurements[0].value')"
+    printf '%-28s %s\n' $m "$(_actuator metrics/$m | jq '.measurements[0].value')"
   done
 }
 
 # The Jaeger link of an order's trace: trace <order>. The trace id is the second part of the
-# traceparent order-service stored with the order's first event (needs the observability profile).
+# traceparent order-service stored with the order's first event (compose: needs the observability profile).
 trace() {
   local id
-  id=$(docker compose exec -T -e PGPASSWORD=order_service postgres psql -h localhost -U order_service -d order_db -tAc \
+  id=$(_psql order_db -tAc \
     "SELECT split_part(traceparent,'-',2) FROM outbox_messages WHERE message_key='$1' ORDER BY id LIMIT 1")
-  echo "http://localhost:16686/trace/${id:-none}"
+  echo "$JAEGER/trace/${id:-none}"
 }
 
 # Publishes an event as if a service had sent it: send_event <topic> <key> <type> <data-json>
+# Compose only: in the cluster every Kafka client needs a KafkaUser with ACLs, and no drill user exists.
 send_event() {
+  if [[ $_drill_target == k8s ]]; then
+    echo "send_event works with compose only: the cluster's Kafka requires a KafkaUser" >&2
+    return 1
+  fi
   local msg
   msg=$(jq -cn --arg id "$(uuid)" --arg type "$3" --argjson data "$4" \
     '{eventId:$id, eventType:$type, eventVersion:1, occurredAt:(now|todate), source:"drill", data:$data}')
@@ -102,7 +145,7 @@ dispatch() {
 
 # payment-service's view of an order: the payment row, its ledger entries and its refunds (no API there).
 payment() {
-  docker compose exec -T -e PGPASSWORD=payment_service postgres psql -h localhost -U payment_service -d payment_db -q \
+  _psql payment_db -q \
     -c "select status, void_requested, provider_reference is not null as held, refunded_amount, failure_reason from payments where order_id = '$1'" \
     -c "select t.kind, e.account, e.amount, e.currency from ledger_transactions t
           join ledger_entries e on e.transaction_id = t.id join payments p on p.id = t.payment_id
